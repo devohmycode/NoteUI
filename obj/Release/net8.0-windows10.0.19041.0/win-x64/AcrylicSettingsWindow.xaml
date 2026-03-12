@@ -1,0 +1,122 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="NoteUI.AcrylicSettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Acrylic">
+
+    <Grid x:ConnectionId='2' x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title bar -->
+        <Grid x:ConnectionId='3' x:Name="TitleBar" Grid.Row="0" Height="36" Padding="8,0">
+            <Grid x:ConnectionId='14' x:Name="DragBar" Background="Transparent"
+                                                         
+                                                     
+                                                           />
+
+            <TextBlock Text="Acrylic personnalis&#233;" FontSize="12"
+                       VerticalAlignment="Center" Margin="4,0,0,0"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       IsHitTestVisible="False"/>
+
+            <Button x:ConnectionId='15' HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Background="Transparent" BorderThickness="0"
+                    Padding="8,6"                    
+                    ToolTipService.ToolTip="Fermer">
+                <FontIcon Glyph="&#xE711;" FontSize="11"/>
+            </Button>
+        </Grid>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" Padding="16,4,16,16">
+            <StackPanel Spacing="18">
+
+                <!-- Tint Opacity -->
+                <StackPanel Spacing="2">
+                    <Grid>
+                        <TextBlock Text="Opacit&#233; de teinte" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock x:ConnectionId='13' x:Name="TintOpacityValue" HorizontalAlignment="Right"
+                                   FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </Grid>
+                    <Slider x:ConnectionId='12' x:Name="TintOpacitySlider" Minimum="0" Maximum="1"
+                            StepFrequency="0.01"
+                                                              />
+                </StackPanel>
+
+                <!-- Luminosity Opacity -->
+                <StackPanel Spacing="2">
+                    <Grid>
+                        <TextBlock Text="Luminosit&#233;" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock x:ConnectionId='11' x:Name="LuminosityValue" HorizontalAlignment="Right"
+                                   FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </Grid>
+                    <Slider x:ConnectionId='10' x:Name="LuminositySlider" Minimum="0" Maximum="1"
+                            StepFrequency="0.01"
+                                                              />
+                </StackPanel>
+
+                <!-- Tint Color -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Couleur de teinte" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:ConnectionId='8' x:Name="TintColorBox" Text="#000000" FontSize="12"
+                                 MaxLength="7"                                   />
+                        <Border x:ConnectionId='9' x:Name="TintColorPreview" Grid.Column="1"
+                                Width="32" Height="32" CornerRadius="4"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Fallback Color -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Couleur de repli" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:ConnectionId='6' x:Name="FallbackColorBox" Text="#000000" FontSize="12"
+                                 MaxLength="7"                                   />
+                        <Border x:ConnectionId='7' x:Name="FallbackColorPreview" Grid.Column="1"
+                                Width="32" Height="32" CornerRadius="4"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Kind -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Style" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:ConnectionId='4' x:Name="BaseButton" Content="Base"
+                                HorizontalAlignment="Stretch" CornerRadius="4"
+                                                   Tag="Base"/>
+                        <Button x:ConnectionId='5' x:Name="ThinButton" Content="Thin" Grid.Column="1"
+                                HorizontalAlignment="Stretch" CornerRadius="4"
+                                                   Tag="Thin"/>
+                    </Grid>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
+
