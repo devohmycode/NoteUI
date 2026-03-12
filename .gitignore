@@ -1,52 +1,29 @@
-# Prerequisites
-*.d
+# .NET build output
+bin/
+obj/
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# Installer output
+installer/
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
 
-# Precompiled Headers
-*.gch
-*.pch
+# VS / Rider
+.vs/
+.idea/
+*.rsuser
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# NuGet
+*.nupkg
+*.snupkg
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
+# Debug
 *.pdb
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
