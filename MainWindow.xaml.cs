@@ -84,6 +84,16 @@ public sealed partial class MainWindow : Window
 
         _notes.Load();
         RefreshNotesList();
+
+        // Auto-connect cloud sync if previously configured
+        _ = InitCloudSync();
+    }
+
+    private async Task InitCloudSync()
+    {
+        await _notes.InitFirebaseFromSettings();
+        await _notes.InitWebDavFromSettings();
+        RefreshNotesList();
     }
 
     private void ExitApplication()
@@ -109,8 +119,14 @@ public sealed partial class MainWindow : Window
             ).ToList();
         }
 
+        var index = 0;
         foreach (var note in notes)
-            NotesList.Children.Add(CreateNoteCard(note));
+        {
+            var card = CreateNoteCard(note);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
     }
 
     private UIElement CreateNoteCard(NoteEntry note)
@@ -128,14 +144,24 @@ public sealed partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var dateText = new TextBlock
+        var topRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 4 };
+        if (note.IsPinned)
+        {
+            topRow.Children.Add(new FontIcon
+            {
+                Glyph = "\uE718",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(new Windows.UI.Color { A = 140, R = 0, G = 0, B = 0 }),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        topRow.Children.Add(new TextBlock
         {
             Text = note.DateDisplay,
-            HorizontalAlignment = HorizontalAlignment.Right,
             FontSize = 12,
             Foreground = new SolidColorBrush(new Windows.UI.Color { A = 160, R = 0, G = 0, B = 0 }),
-        };
-        Grid.SetRow(dateText, 0);
+        });
+        Grid.SetRow(topRow, 0);
 
         var preview = note.Preview;
         if (string.IsNullOrEmpty(preview)) preview = note.Title;
@@ -152,7 +178,7 @@ public sealed partial class MainWindow : Window
         };
         Grid.SetRow(contentText, 1);
 
-        grid.Children.Add(dateText);
+        grid.Children.Add(topRow);
         grid.Children.Add(contentText);
         border.Child = grid;
 
@@ -169,8 +195,17 @@ public sealed partial class MainWindow : Window
 
     private void ShowNoteContextMenu(string noteId, FrameworkElement target)
     {
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+        var pinLabel = note?.IsPinned == true ? "D\u00e9s\u00e9pingler" : "\u00c9pingler";
+        var pinGlyph = note?.IsPinned == true ? "\uE77A" : "\uE718";
+
         var actions = new List<ActionPanel.ActionItem>
         {
+            new(pinGlyph, pinLabel, [], () =>
+            {
+                _notes.TogglePin(noteId);
+                RefreshNotesList(SearchBox.Text);
+            }),
             new("\uE70F", "Modifier", [], () => OpenNote(noteId)),
             new("\uE8C8", "Dupliquer", [], () =>
             {
@@ -238,6 +273,9 @@ public sealed partial class MainWindow : Window
         var theme = AppSettings.LoadThemeSetting();
 
         var flyout = ActionPanel.CreateSettings(theme, settings.Type,
+            _notes.CurrentFolder, AppSettings.GetDefaultNotesFolder(),
+            _notes.Firebase is { IsConnected: true }, _notes.Firebase?.Email,
+            _notes.WebDav is { IsConfigured: true }, _notes.WebDav?.ServerUrl,
             onThemeSelected: t =>
             {
                 AppSettings.SaveThemeSetting(t);
@@ -256,10 +294,257 @@ public sealed partial class MainWindow : Window
 
                 if (b == "acrylic_custom")
                     OpenAcrylicSettings();
+            },
+            onChangeFolder: async () => await PickNotesFolder(),
+            onResetFolder: () =>
+            {
+                _notes.ChangeFolder(AppSettings.GetDefaultNotesFolder());
+                RefreshNotesList();
+            },
+            onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
+            onDisconnectFirebase: () =>
+            {
+                _notes.DisconnectFirebase();
+            },
+            onSyncFirebase: async () =>
+            {
+                await _notes.SyncFromFirebase();
+                RefreshNotesList();
+            },
+            onConfigureWebDav: async () => await ShowWebDavConfigDialog(),
+            onDisconnectWebDav: () =>
+            {
+                _notes.DisconnectWebDav();
+            },
+            onSyncWebDav: async () =>
+            {
+                await _notes.SyncFromWebDav();
+                RefreshNotesList();
             });
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
+    }
+
+    private async Task PickNotesFolder()
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
+        picker.FileTypeFilter.Add("*");
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder != null)
+        {
+            foreach (var w in _openNoteWindows.ToList())
+            {
+                try { w.Close(); } catch { }
+            }
+            _notes.ChangeFolder(folder.Path);
+            RefreshNotesList();
+        }
+    }
+
+    private async Task ShowWebDavConfigDialog()
+    {
+        var urlBox = new TextBox
+        {
+            PlaceholderText = "https://cloud.exemple.com/remote.php/dav/files/user/Notes",
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var userBox = new TextBox
+        {
+            PlaceholderText = "Nom d'utilisateur",
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var passBox = new PasswordBox
+        {
+            PlaceholderText = "Mot de passe",
+            FontSize = 12
+        };
+        var errorText = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Visibility = Visibility.Collapsed,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+
+        var (savedUrl, savedUser, _) = AppSettings.LoadWebDavSettings();
+        if (!string.IsNullOrEmpty(savedUrl)) urlBox.Text = savedUrl;
+        if (!string.IsNullOrEmpty(savedUser)) userBox.Text = savedUser;
+
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(new TextBlock { Text = "URL WebDAV", FontSize = 12 });
+        panel.Children.Add(urlBox);
+        panel.Children.Add(new TextBlock { Text = "Utilisateur", FontSize = 12 });
+        panel.Children.Add(userBox);
+        panel.Children.Add(new TextBlock { Text = "Mot de passe", FontSize = 12 });
+        panel.Children.Add(passBox);
+        panel.Children.Add(errorText);
+
+        var dialog = new ContentDialog
+        {
+            Title = "WebDAV / Nextcloud",
+            Content = panel,
+            PrimaryButtonText = "Connecter",
+            CloseButtonText = "Annuler",
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        while (true)
+        {
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary) break;
+
+            var url = urlBox.Text.Trim();
+            var user = userBox.Text.Trim();
+            var pass = passBox.Password;
+
+            if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(user))
+            {
+                errorText.Text = "URL et utilisateur requis";
+                errorText.Visibility = Visibility.Visible;
+                continue;
+            }
+
+            var (success, error) = await _notes.ConnectWebDav(url, user, pass);
+            if (success)
+            {
+                await _notes.SyncFromWebDav();
+                RefreshNotesList();
+                break;
+            }
+
+            errorText.Text = error ?? "Erreur de connexion";
+            errorText.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async Task ShowFirebaseConfigDialog()
+    {
+        var emailBox = new TextBox
+        {
+            PlaceholderText = "email@exemple.com",
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var passwordBox = new PasswordBox
+        {
+            PlaceholderText = "Mot de passe",
+            FontSize = 12
+        };
+        var errorText = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Visibility = Visibility.Collapsed,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+
+        // Google sign-in button
+        var googleBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(0, 10, 0, 10),
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var googleContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        googleContent.Children.Add(new TextBlock { Text = "G", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 66, 133, 244)) });
+        googleContent.Children.Add(new TextBlock { Text = "Continuer avec Google", FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        googleBtn.Content = googleContent;
+
+        var separator = new Grid { Margin = new Thickness(0, 4, 0, 12) };
+        separator.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        separator.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        separator.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var line1 = new Border { Height = 1, Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"], VerticalAlignment = VerticalAlignment.Center };
+        var line2 = new Border { Height = 1, Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"], VerticalAlignment = VerticalAlignment.Center };
+        var orText = new TextBlock { Text = "ou", FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"], Margin = new Thickness(12, 0, 12, 0) };
+        Grid.SetColumn(line1, 0); Grid.SetColumn(orText, 1); Grid.SetColumn(line2, 2);
+        separator.Children.Add(line1); separator.Children.Add(orText); separator.Children.Add(line2);
+
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(googleBtn);
+        panel.Children.Add(separator);
+        panel.Children.Add(new TextBlock { Text = "Email", FontSize = 12 });
+        panel.Children.Add(emailBox);
+        panel.Children.Add(new TextBlock { Text = "Mot de passe", FontSize = 12 });
+        panel.Children.Add(passwordBox);
+        panel.Children.Add(errorText);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Firebase",
+            Content = panel,
+            PrimaryButtonText = "Se connecter",
+            SecondaryButtonText = "S'inscrire",
+            CloseButtonText = "Annuler",
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        // Hardcoded Firebase config
+        const string firebaseUrl = "https://noteui-39b6c-default-rtdb.europe-west1.firebasedatabase.app";
+        const string apiKey = "AIzaSyCoPsntROvxQyAiRLHCNeP3XJqZRTHp1bk";
+
+        var googleSignInDone = false;
+        googleBtn.Click += async (_, _) =>
+        {
+            dialog.Hide();
+            var (success, error) = await _notes.SignInFirebaseWithGoogle(firebaseUrl, apiKey);
+            if (success)
+            {
+                await _notes.SyncFromFirebase();
+                RefreshNotesList();
+                googleSignInDone = true;
+            }
+            else
+            {
+                errorText.Text = error ?? "Erreur Google";
+                errorText.Visibility = Visibility.Visible;
+                // Re-show dialog
+                await dialog.ShowAsync();
+            }
+        };
+
+        while (!googleSignInDone)
+        {
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.None) break;
+
+            var email = emailBox.Text.Trim();
+            var password = passwordBox.Password;
+
+            if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
+            {
+                errorText.Text = "Email et mot de passe requis";
+                errorText.Visibility = Visibility.Visible;
+                continue;
+            }
+
+            var (success, error) = result == ContentDialogResult.Primary
+                ? await _notes.SignInFirebase(firebaseUrl, apiKey, email, password)
+                : await _notes.SignUpFirebase(firebaseUrl, apiKey, email, password);
+
+            if (success)
+            {
+                await _notes.SyncFromFirebase();
+                RefreshNotesList();
+                break;
+            }
+
+            errorText.Text = error ?? "Erreur de connexion";
+            errorText.Visibility = Visibility.Visible;
+        }
     }
 
     private void OpenAcrylicSettings()
@@ -300,6 +585,18 @@ public sealed partial class MainWindow : Window
         _isCompact = !_isCompact;
         _targetHeight = _isCompact ? CompactHeight : FullHeight;
         CompactIcon.Glyph = _isCompact ? "\uE70D" : "\uE70E";
+
+        if (_isCompact)
+        {
+            AnimationHelper.FadeOut(TitleLabel, 100);
+            AnimationHelper.FadeOut(NotesScroll, 120);
+        }
+        else
+        {
+            AnimationHelper.FadeIn(TitleLabel, 200, 80);
+            AnimationHelper.FadeIn(SearchGrid, 200, 120);
+            AnimationHelper.FadeIn(NotesScroll, 250, 160);
+        }
 
         _currentAnimHeight = AppWindow.Size.Height;
         _animTimer?.Stop();

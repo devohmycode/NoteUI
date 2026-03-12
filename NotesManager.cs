@@ -8,6 +8,10 @@ public class NotesManager
     private string _saveDir;
     private string _savePath;
 
+    public FirebaseSync? Firebase { get; private set; }
+    public WebDavSync? WebDav { get; private set; }
+    public bool IsSyncing { get; private set; }
+
     public IReadOnlyList<NoteEntry> Notes => _notes;
     public string CurrentFolder => _saveDir;
 
@@ -51,6 +55,194 @@ public class NotesManager
             File.WriteAllText(_savePath, json);
         }
         catch { }
+
+        // Fire-and-forget push to cloud
+        if (Firebase is { IsConnected: true })
+            _ = Firebase.PushNotesAsync(_notes);
+        if (WebDav is { IsConfigured: true })
+            _ = WebDav.PushNotesAsync(_notes);
+    }
+
+    // ── Firebase ─────────────────────────────────────────────────
+
+    public async Task<(bool Success, string? Error)> SignInFirebase(string url, string apiKey, string email, string password)
+    {
+        Firebase?.Dispose();
+        Firebase = new FirebaseSync();
+        Firebase.Configure(url, apiKey);
+
+        var result = await Firebase.SignInAsync(email, password);
+        if (result.Success)
+        {
+            AppSettings.SaveFirebaseSettings(url, apiKey, Firebase.GetRefreshToken() ?? "");
+            return result;
+        }
+
+        Firebase.Dispose();
+        Firebase = null;
+        return result;
+    }
+
+    public async Task<(bool Success, string? Error)> SignUpFirebase(string url, string apiKey, string email, string password)
+    {
+        Firebase?.Dispose();
+        Firebase = new FirebaseSync();
+        Firebase.Configure(url, apiKey);
+
+        var result = await Firebase.SignUpAsync(email, password);
+        if (result.Success)
+        {
+            AppSettings.SaveFirebaseSettings(url, apiKey, Firebase.GetRefreshToken() ?? "");
+            return result;
+        }
+
+        Firebase.Dispose();
+        Firebase = null;
+        return result;
+    }
+
+    public async Task<(bool Success, string? Error)> SignInFirebaseWithGoogle(string url, string apiKey)
+    {
+        Firebase?.Dispose();
+        Firebase = new FirebaseSync();
+        Firebase.Configure(url, apiKey);
+
+        var result = await Firebase.SignInWithGoogleAsync();
+        if (result.Success)
+        {
+            AppSettings.SaveFirebaseSettings(url, apiKey, Firebase.GetRefreshToken() ?? "");
+            return result;
+        }
+
+        Firebase.Dispose();
+        Firebase = null;
+        return result;
+    }
+
+    public async Task<bool> SyncFromFirebase()
+    {
+        if (Firebase is not { IsConnected: true }) return false;
+        IsSyncing = true;
+        try
+        {
+            var remote = await Firebase.PullNotesAsync();
+            if (remote == null) return false;
+
+            var merged = new Dictionary<string, NoteEntry>();
+            foreach (var n in _notes)
+                merged[n.Id] = n;
+            foreach (var n in remote)
+            {
+                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
+                    merged[n.Id] = n;
+            }
+
+            _notes.Clear();
+            _notes.AddRange(merged.Values);
+            Save();
+            return true;
+        }
+        catch { return false; }
+        finally { IsSyncing = false; }
+    }
+
+    public async Task InitFirebaseFromSettings()
+    {
+        var (url, apiKey, refreshToken) = AppSettings.LoadFirebaseSettings();
+        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(refreshToken))
+            return;
+
+        Firebase = new FirebaseSync();
+        Firebase.Configure(url, apiKey);
+        if (await Firebase.SignInWithRefreshTokenAsync(refreshToken))
+        {
+            // Update stored refresh token
+            AppSettings.SaveFirebaseSettings(url, apiKey, Firebase.GetRefreshToken() ?? "");
+            await SyncFromFirebase();
+        }
+        else
+        {
+            Firebase.Dispose();
+            Firebase = null;
+        }
+    }
+
+    public void DisconnectFirebase()
+    {
+        Firebase?.Dispose();
+        Firebase = null;
+        AppSettings.SaveFirebaseSettings("", "", "");
+    }
+
+    // ── WebDAV ──────────────────────────────────────────────────
+
+    public async Task<(bool Success, string? Error)> ConnectWebDav(string url, string username, string password)
+    {
+        WebDav?.Dispose();
+        WebDav = new WebDavSync();
+        WebDav.Configure(url, username, password);
+
+        var result = await WebDav.TestConnectionAsync();
+        if (result.Success)
+        {
+            AppSettings.SaveWebDavSettings(url, username, password);
+            return result;
+        }
+
+        WebDav.Dispose();
+        WebDav = null;
+        return result;
+    }
+
+    public async Task<bool> SyncFromWebDav()
+    {
+        if (WebDav is not { IsConfigured: true }) return false;
+        IsSyncing = true;
+        try
+        {
+            var remote = await WebDav.PullNotesAsync();
+            if (remote == null) return false;
+
+            var merged = new Dictionary<string, NoteEntry>();
+            foreach (var n in _notes)
+                merged[n.Id] = n;
+            foreach (var n in remote)
+            {
+                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
+                    merged[n.Id] = n;
+            }
+
+            _notes.Clear();
+            _notes.AddRange(merged.Values);
+            Save();
+            return true;
+        }
+        catch { return false; }
+        finally { IsSyncing = false; }
+    }
+
+    public async Task InitWebDavFromSettings()
+    {
+        var (url, username, password) = AppSettings.LoadWebDavSettings();
+        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(username)) return;
+
+        WebDav = new WebDavSync();
+        WebDav.Configure(url, username, password);
+        var result = await WebDav.TestConnectionAsync();
+        if (result.Success)
+            await SyncFromWebDav();
+        else
+        {
+            WebDav.Dispose();
+            WebDav = null;
+        }
+    }
+
+    public void DisconnectWebDav()
+    {
+        WebDav?.Dispose();
+        WebDav = null;
+        AppSettings.SaveWebDavSettings("", "", "");
     }
 
     public NoteEntry CreateNote(string color = "Yellow")
@@ -105,10 +297,19 @@ public class NotesManager
         Save();
     }
 
+    public void TogglePin(string id)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.IsPinned = !note.IsPinned;
+        Save();
+    }
+
     public List<NoteEntry> GetSorted()
     {
         return _notes
-            .OrderByDescending(n => n.UpdatedAt)
+            .OrderByDescending(n => n.IsPinned)
+            .ThenByDescending(n => n.UpdatedAt)
             .ToList();
     }
 }
@@ -119,6 +320,7 @@ public class NoteEntry
     public string Title { get; set; } = "Sans titre";
     public string Content { get; set; } = "";
     public string Color { get; set; } = "Yellow";
+    public bool IsPinned { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

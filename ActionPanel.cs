@@ -164,8 +164,12 @@ public static class ActionPanel
 
     public static Flyout CreateSettings(string currentTheme, string currentBackdropType,
         string currentNotesFolder, string defaultNotesFolder,
+        bool isFirebaseConnected, string? firebaseEmail,
+        bool isWebDavConnected, string? webDavUrl,
         Action<string> onThemeSelected, Action<string> onBackdropSelected,
-        Action onChangeFolder, Action onResetFolder)
+        Action onChangeFolder, Action onResetFolder,
+        Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
+        Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -220,45 +224,128 @@ public static class ActionPanel
         panel.Children.Add(CreateHeader("Stockage"));
         panel.Children.Add(CreateSeparator());
 
-        var isDefault = string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
-        var folderDisplay = isDefault ? "Local (par d\u00e9faut)" : ShortenPath(currentNotesFolder);
+        var isCustomFolder = !string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
 
-        var folderBtn = CreateCheckItem(folderDisplay, false, () =>
+        // Local option
+        var localBtn = CreateCheckItem("Local", !isFirebaseConnected && !isCustomFolder, () =>
+        {
+            if (isCustomFolder) { onResetFolder(); flyout.Hide(); }
+            else if (isFirebaseConnected) { onDisconnectFirebase(); flyout.Hide(); }
+        });
+        localBtn.Tag = "Local";
+        allButtons.Add(localBtn);
+        panel.Children.Add(localBtn);
+
+        if (isCustomFolder)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = ShortenPath(currentNotesFolder),
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Margin = new Thickness(12, 0, 12, 4),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+        }
+
+        // Dossier option
+        var folderBtn = CreateCheckItem("Dossier personnalis\u00e9", isCustomFolder && !isFirebaseConnected, () =>
         {
             onChangeFolder();
             flyout.Hide();
         });
-        folderBtn.Tag = "Dossier Stockage";
+        folderBtn.Tag = "Dossier personnalis\u00e9";
         allButtons.Add(folderBtn);
         panel.Children.Add(folderBtn);
 
-        if (!isDefault)
+        // Cloud (Firebase) option
+        if (isFirebaseConnected)
         {
-            var resetBtn = new Button
+            var cloudBtn = CreateCheckItem("Cloud", true, () =>
             {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 7, 10, 7),
-                CornerRadius = new CornerRadius(5),
-                Tag = "R\u00e9initialiser stockage"
-            };
-            var resetText = new TextBlock
-            {
-                Text = "R\u00e9initialiser (local)",
-                FontSize = 13,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            resetBtn.Content = resetText;
-            resetBtn.Click += (_, _) =>
-            {
-                onResetFolder();
+                onSyncFirebase();
                 flyout.Hide();
-            };
-            allButtons.Add(resetBtn);
-            panel.Children.Add(resetBtn);
+            });
+            cloudBtn.Tag = "Cloud";
+            allButtons.Add(cloudBtn);
+            panel.Children.Add(cloudBtn);
+
+            if (!string.IsNullOrEmpty(firebaseEmail))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = firebaseEmail,
+                    FontSize = 11,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                    Margin = new Thickness(12, 0, 12, 4),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            }
+
+            var disconnectBtn = CreateCheckItem("D\u00e9connecter", false, () =>
+            {
+                onDisconnectFirebase();
+                flyout.Hide();
+            });
+            disconnectBtn.Tag = "D\u00e9connecter Cloud";
+            allButtons.Add(disconnectBtn);
+            panel.Children.Add(disconnectBtn);
+        }
+        else
+        {
+            var connectBtn = CreateCheckItem("Cloud", false, () =>
+            {
+                onConfigureFirebase();
+                flyout.Hide();
+            });
+            connectBtn.Tag = "Cloud";
+            allButtons.Add(connectBtn);
+            panel.Children.Add(connectBtn);
+        }
+
+        // WebDAV / Nextcloud
+        if (isWebDavConnected)
+        {
+            var webdavBtn = CreateCheckItem("WebDAV", true, () =>
+            {
+                onSyncWebDav();
+                flyout.Hide();
+            });
+            webdavBtn.Tag = "WebDAV Nextcloud";
+            allButtons.Add(webdavBtn);
+            panel.Children.Add(webdavBtn);
+
+            if (!string.IsNullOrEmpty(webDavUrl))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = ShortenPath(webDavUrl),
+                    FontSize = 11,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                    Margin = new Thickness(12, 0, 12, 4),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            }
+
+            var disconnectWdBtn = CreateCheckItem("D\u00e9connecter", false, () =>
+            {
+                onDisconnectWebDav();
+                flyout.Hide();
+            });
+            disconnectWdBtn.Tag = "D\u00e9connecter WebDAV";
+            allButtons.Add(disconnectWdBtn);
+            panel.Children.Add(disconnectWdBtn);
+        }
+        else
+        {
+            var connectWdBtn = CreateCheckItem("WebDAV", false, () =>
+            {
+                onConfigureWebDav();
+                flyout.Hide();
+            });
+            connectWdBtn.Tag = "WebDAV Nextcloud";
+            allButtons.Add(connectWdBtn);
+            panel.Children.Add(connectWdBtn);
         }
 
         // Search

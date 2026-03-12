@@ -53,12 +53,12 @@
         </Grid>
 
         <!-- Row 1: Title -->
-        <TextBlock Grid.Row="1" Text="Notes"
+        <TextBlock x:Name="TitleLabel" Grid.Row="1" Text="Notes"
                    FontSize="22" FontWeight="Bold"
                    Margin="16,0,16,8"/>
 
         <!-- Row 2: Search -->
-        <Grid Grid.Row="2" Margin="12,0,12,8">
+        <Grid x:Name="SearchGrid" Grid.Row="2" Margin="12,0,12,8">
             <TextBox x:Name="SearchBox"
                      PlaceholderText="Rechercher..."
                      TextChanged="SearchBox_TextChanged"
@@ -79,7 +79,7 @@
         </Grid>
 
         <!-- Row 3: Notes list -->
-        <ScrollViewer Grid.Row="3" Padding="12,0,12,12"
+        <ScrollViewer x:Name="NotesScroll" Grid.Row="3" Padding="12,0,12,12"
                       VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="NotesList" Spacing="8"/>
         </ScrollViewer>

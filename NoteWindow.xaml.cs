@@ -96,12 +96,12 @@ public sealed partial class NoteWindow : Window
 
     private void ApplyNoteColor(string colorName)
     {
-        // Color only on the title bar
         var darker = NoteColors.GetDarker(colorName, 0.93);
         TitleBarGrid.Background = new SolidColorBrush(darker);
-
-        // Update the small indicator dot in the status bar
         ColorIndicator.Fill = new SolidColorBrush(NoteColors.Get(colorName));
+
+        // Subtle fade on color change
+        AnimationHelper.FadeIn(TitleBarGrid, 200);
     }
 
     // ── Note loading/saving ────────────────────────────────────
@@ -261,8 +261,15 @@ public sealed partial class NoteWindow : Window
         if (_isCompact)
         {
             TitleText.Text = _note.Title;
-            NoteEditor.Visibility = Visibility.Collapsed;
-            StatusBar.Visibility = Visibility.Collapsed;
+            // Fade out content then collapse
+            AnimationHelper.FadeOut(NoteEditor, 120, () =>
+            {
+                NoteEditor.Visibility = Visibility.Collapsed;
+            });
+            AnimationHelper.FadeOut(StatusBar, 120, () =>
+            {
+                StatusBar.Visibility = Visibility.Collapsed;
+            });
         }
         else
         {
@@ -270,6 +277,8 @@ public sealed partial class NoteWindow : Window
             TitleText.Visibility = Visibility.Visible;
             NoteEditor.Visibility = Visibility.Visible;
             StatusBar.Visibility = Visibility.Visible;
+            AnimationHelper.FadeIn(NoteEditor, 200, 100);
+            AnimationHelper.FadeIn(StatusBar, 200, 150);
         }
 
         _targetHeight = _isCompact ? CompactNoteHeight : FullNoteHeight;
