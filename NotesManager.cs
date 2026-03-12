@@ -261,6 +261,33 @@ public class NotesManager
         return note;
     }
 
+    public NoteEntry CreateTaskList(string color = "Yellow")
+    {
+        var note = new NoteEntry
+        {
+            Id = Guid.NewGuid().ToString(),
+            Title = "Sans titre",
+            Content = "",
+            Color = color,
+            NoteType = "tasklist",
+            Tasks = [new TaskItem()],
+            CreatedAt = DateTime.Now,
+            UpdatedAt = DateTime.Now,
+        };
+        _notes.Insert(0, note);
+        Save();
+        return note;
+    }
+
+    public void UpdateTasks(string id, List<TaskItem> tasks)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.Tasks = tasks;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
     public void UpdateNote(string id, string content, string? title = null, string? color = null)
     {
         var note = _notes.FirstOrDefault(n => n.Id == id);
@@ -282,6 +309,8 @@ public class NotesManager
             Title = source.Title,
             Content = source.Content,
             Color = source.Color,
+            NoteType = source.NoteType,
+            Tasks = source.Tasks.Select(t => new TaskItem { Text = t.Text, IsDone = t.IsDone }).ToList(),
             CreatedAt = DateTime.Now,
             UpdatedAt = DateTime.Now,
         };
@@ -314,6 +343,14 @@ public class NotesManager
     }
 }
 
+public class TaskItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Text { get; set; } = "";
+    public bool IsDone { get; set; }
+    public DateTime? ReminderAt { get; set; }
+}
+
 public class NoteEntry
 {
     public string Id { get; set; } = "";
@@ -321,6 +358,8 @@ public class NoteEntry
     public string Content { get; set; } = "";
     public string Color { get; set; } = "Yellow";
     public bool IsPinned { get; set; }
+    public string NoteType { get; set; } = "note"; // "note" or "tasklist"
+    public List<TaskItem> Tasks { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -341,10 +380,26 @@ public class NoteEntry
     {
         get
         {
+            if (NoteType == "tasklist")
+            {
+                if (Tasks.Count == 0) return "";
+                var lines = Tasks.Take(4).Select(t => (t.IsDone ? "\u2611 " : "\u2610 ") + t.Text);
+                return string.Join("\n", lines);
+            }
             var text = Content;
             if (text.StartsWith("{\\rtf", StringComparison.Ordinal))
                 text = StripRtf(text);
             return string.IsNullOrWhiteSpace(text) ? "" : text.Trim();
+        }
+    }
+
+    public string TaskProgress
+    {
+        get
+        {
+            if (NoteType != "tasklist" || Tasks.Count == 0) return "";
+            var done = Tasks.Count(t => t.IsDone);
+            return $"{done}/{Tasks.Count}";
         }
     }
 

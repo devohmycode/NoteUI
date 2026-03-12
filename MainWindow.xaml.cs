@@ -12,6 +12,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly NotesManager _notes = new();
     private readonly List<NoteWindow> _openNoteWindows = [];
+    private ReminderService? _reminderService;
 
     private DesktopAcrylicController? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
@@ -19,6 +20,7 @@ public sealed partial class MainWindow : Window
     private TrayIcon? _trayIcon;
     private bool _isExiting;
     private AcrylicSettingsWindow? _acrylicSettingsWindow;
+    private VoiceNoteWindow? _voiceNoteWindow;
 
     private bool _isPinned;
     private bool _isCompact;
@@ -77,6 +79,8 @@ public sealed partial class MainWindow : Window
 
         this.Closed += (_, _) =>
         {
+            _reminderService?.Dispose();
+            ReminderService.Shutdown();
             _acrylicController?.Dispose();
             _trayIcon?.Dispose();
             Environment.Exit(0);
@@ -84,6 +88,9 @@ public sealed partial class MainWindow : Window
 
         _notes.Load();
         RefreshNotesList();
+
+        _reminderService = new ReminderService(_notes);
+        _reminderService.ReminderFired += () => DispatcherQueue.TryEnqueue(() => RefreshNotesList(SearchBox.Text));
 
         // Auto-connect cloud sync if previously configured
         _ = InitCloudSync();
@@ -138,6 +145,8 @@ public sealed partial class MainWindow : Window
             Background = new SolidColorBrush(color),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(16, 10, 16, 16),
+            Shadow = new ThemeShadow(),
+            Translation = new System.Numerics.Vector3(0, 0, 16),
         };
 
         var grid = new Grid();
@@ -151,6 +160,16 @@ public sealed partial class MainWindow : Window
             {
                 Glyph = "\uE718",
                 FontSize = 10,
+                Foreground = new SolidColorBrush(new Windows.UI.Color { A = 140, R = 0, G = 0, B = 0 }),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        if (!string.IsNullOrEmpty(note.TaskProgress))
+        {
+            topRow.Children.Add(new TextBlock
+            {
+                Text = note.TaskProgress,
+                FontSize = 11,
                 Foreground = new SolidColorBrush(new Windows.UI.Color { A = 140, R = 0, G = 0, B = 0 }),
                 VerticalAlignment = VerticalAlignment.Center
             });
@@ -260,11 +279,42 @@ public sealed partial class MainWindow : Window
 
     // ── Events ─────────────────────────────────────────────────
 
-    private void NewNote_Click(object sender, RoutedEventArgs e)
+    private void AddButton_Click(object sender, RoutedEventArgs e)
     {
-        var note = _notes.CreateNote();
-        RefreshNotesList(SearchBox.Text);
-        OpenNote(note.Id);
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new("\uE70F", "Nouvelle note", [], () =>
+            {
+                var note = _notes.CreateNote();
+                RefreshNotesList(SearchBox.Text);
+                OpenNote(note.Id);
+            }),
+            new("\uE73A", "Liste de t\u00e2ches", [], () =>
+            {
+                var note = _notes.CreateTaskList();
+                RefreshNotesList(SearchBox.Text);
+                OpenNote(note.Id);
+            }),
+            new("\uE720", "Note audio", [], OpenVoiceNote),
+        };
+
+        var flyout = ActionPanel.Create("Nouveau", actions);
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        flyout.ShowAt(AddButton);
+    }
+
+    private void OpenVoiceNote()
+    {
+        if (_voiceNoteWindow != null)
+        {
+            _voiceNoteWindow.Activate();
+            return;
+        }
+
+        _voiceNoteWindow = new VoiceNoteWindow(_notes);
+        _voiceNoteWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshNotesList(SearchBox.Text));
+        _voiceNoteWindow.Closed += (_, _) => _voiceNoteWindow = null;
+        _voiceNoteWindow.Activate();
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)

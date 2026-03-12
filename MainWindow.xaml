@@ -20,10 +20,10 @@
                   PointerMoved="DragBar_PointerMoved"
                   PointerReleased="DragBar_PointerReleased"/>
 
-            <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+            <Button x:Name="AddButton" HorizontalAlignment="Left" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
-                    Padding="10,6" Click="NewNote_Click"
-                    ToolTipService.ToolTip="Nouvelle note">
+                    Padding="10,6" Click="AddButton_Click"
+                    ToolTipService.ToolTip="Nouveau">
                 <FontIcon Glyph="&#xE710;" FontSize="16"/>
             </Button>
 

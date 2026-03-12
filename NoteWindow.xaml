@@ -64,7 +64,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- Row 1: Rich text editor -->
+        <!-- Row 1: Rich text editor (notes) -->
         <RichEditBox x:Name="NoteEditor" Grid.Row="1"
                      AcceptsReturn="True"
                      BorderThickness="0"
@@ -81,6 +81,14 @@
                 <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent"/>
             </RichEditBox.Resources>
         </RichEditBox>
+
+        <!-- Row 1: Task list (tasklists) -->
+        <ScrollViewer x:Name="TaskListScroll" Grid.Row="1" Visibility="Collapsed"
+                      VerticalScrollBarVisibility="Auto" Padding="8,4,8,4">
+            <StackPanel x:Name="TaskListPanel" Spacing="2">
+                <!-- Tasks added dynamically -->
+            </StackPanel>
+        </ScrollViewer>
 
         <!-- Row 2: Status bar with Format (left) and Couleur (right) -->
         <Grid x:Name="StatusBar" Grid.Row="2" Padding="4,2"
