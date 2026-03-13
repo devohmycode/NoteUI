@@ -160,13 +160,13 @@ public class FirebaseSync : IDisposable
 
     // ── Google Sign-In ─────────────────────────────────────────
 
-    private const string GoogleClientId = "534088409645-ukdn5trt2s3eofos50ir00kvshumu7sl.apps.googleusercontent.com";
-    private const string GoogleWebClientId = "534088409645-omadog0lhvocam2dbjsh2hglkvveinmp.apps.googleusercontent.com";
-    private const string GoogleClientSecret = "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";
+    // Loaded from environment to avoid hardcoding OAuth credentials in git history.
 
     public async Task<(bool Success, string? Error)> SignInWithGoogleAsync()
     {
         if (!IsConfigured) return (false, "Non configur\u00e9");
+        if (!RuntimeSecrets.TryGetGoogleClientId(out var googleClientId))
+            return (false, "Google OAuth non configur\u00e9 (NOTEUI_GOOGLE_CLIENT_ID).");
         try
         {
             // Generate PKCE code verifier + challenge
@@ -183,7 +183,7 @@ public class FirebaseSync : IDisposable
 
             // Open browser
             var authUrl = "https://accounts.google.com/o/oauth2/v2/auth"
-                + $"?client_id={GoogleClientId}"
+                + $"?client_id={googleClientId}"
                 + $"&redirect_uri={Uri.EscapeDataString(redirectUri)}"
                 + "&response_type=code"
                 + "&scope=openid%20email%20profile"
@@ -226,8 +226,7 @@ public class FirebaseSync : IDisposable
             var tokenPayload = new Dictionary<string, string>
             {
                 ["code"] = code,
-                ["client_id"] = GoogleClientId,
-                ["client_secret"] = GoogleClientSecret,
+                ["client_id"] = googleClientId,
                 ["redirect_uri"] = redirectUri,
                 ["grant_type"] = "authorization_code",
                 ["code_verifier"] = codeVerifier
@@ -237,7 +236,6 @@ public class FirebaseSync : IDisposable
 
             if (!tokenResponse.IsSuccessStatusCode)
             {
-                var err = await tokenResponse.Content.ReadAsStringAsync();
                 return (false, $"Erreur token Google: {tokenResponse.StatusCode}");
             }
 

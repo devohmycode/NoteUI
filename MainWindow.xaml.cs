@@ -544,9 +544,18 @@ public sealed partial class MainWindow : Window
             XamlRoot = this.Content.XamlRoot
         };
 
-        // Hardcoded Firebase config
-        const string firebaseUrl = "https://noteui-39b6c-default-rtdb.europe-west1.firebasedatabase.app";
-        const string apiKey = "AIzaSyCoPsntROvxQyAiRLHCNeP3XJqZRTHp1bk";
+        if (!RuntimeSecrets.TryGetFirebaseConfig(out var firebaseUrl, out var apiKey))
+        {
+            var missingConfigDialog = new ContentDialog
+            {
+                Title = "Configuration Firebase manquante",
+                Content = "Ajoutez un fichier firebase.public.json \u00e0 c\u00f4t\u00e9 de NoteUI.exe (ou d\u00e9finissez NOTEUI_FIREBASE_URL et NOTEUI_FIREBASE_API_KEY pour le d\u00e9veloppement).",
+                CloseButtonText = "OK",
+                XamlRoot = this.Content.XamlRoot
+            };
+            await missingConfigDialog.ShowAsync();
+            return;
+        }
 
         var googleSignInDone = false;
         googleBtn.Click += async (_, _) =>

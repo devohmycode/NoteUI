@@ -23,6 +23,9 @@ installer/
 # Debug
 *.pdb
 
+# Local runtime config (contains project identifiers)
+firebase.public.json
+
 # OS files
 Thumbs.db
 desktop.ini
