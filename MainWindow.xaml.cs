@@ -344,6 +344,8 @@ public sealed partial class MainWindow : Window
 
                 if (b == "acrylic_custom")
                     OpenAcrylicSettings();
+                else
+                    _acrylicSettingsWindow?.Close();
             },
             onChangeFolder: async () => await PickNotesFolder(),
             onResetFolder: () =>

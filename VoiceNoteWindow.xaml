@@ -150,7 +150,6 @@
         <Grid x:Name="RecordingPage" Grid.Row="1" Visibility="Collapsed" Padding="16,8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="120"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
@@ -171,11 +170,8 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </Grid>
 
-            <!-- Waveform -->
-            <Canvas x:Name="WaveformCanvas" Grid.Row="1" Background="Transparent"/>
-
             <!-- Record + Save buttons -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal"
+            <StackPanel Grid.Row="1" Orientation="Horizontal"
                         HorizontalAlignment="Center" Spacing="12" Margin="0,12">
                 <Button x:Name="RecordButton"
                         Width="48" Height="48"
@@ -190,7 +186,7 @@
             </StackPanel>
 
             <!-- Transcription -->
-            <ScrollViewer Grid.Row="3" Margin="0,8,0,0">
+            <ScrollViewer Grid.Row="2" Margin="0,8,0,0">
                 <StackPanel Spacing="4">
                     <TextBlock x:Name="TranscriptionText"
                                TextWrapping="Wrap"

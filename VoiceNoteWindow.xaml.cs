@@ -6,7 +6,9 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
+using System.Numerics;
 
 namespace NoteUI;
 
@@ -35,12 +37,6 @@ public sealed partial class VoiceNoteWindow : Window
     private DateTime _recordingStartTime;
     private DispatcherTimer? _durationTimer;
     private string _fullTranscription = "";
-
-    // Waveform
-    private readonly float[] _waveformBars = new float[36];
-    private readonly float[] _waveformTargets = new float[36];
-    private float _currentAudioLevel;
-    private DispatcherTimer? _waveformTimer;
 
     // Drag
     private bool _isDragging;
@@ -409,11 +405,6 @@ public sealed partial class VoiceNoteWindow : Window
             });
         };
 
-        _recognizer.OnAudioLevel += level =>
-        {
-            _currentAudioLevel = level;
-        };
-
         _recognizer.Start();
         _isRecording = true;
         _recordingStartTime = DateTime.Now;
@@ -430,7 +421,7 @@ public sealed partial class VoiceNoteWindow : Window
         };
         _durationTimer.Start();
 
-        StartWaveformAnimation();
+        StartPulseAnimation();
     }
 
     private void StopRecording()
@@ -441,7 +432,7 @@ public sealed partial class VoiceNoteWindow : Window
         _recognizer?.Stop();
         _durationTimer?.Stop();
         _durationTimer = null;
-        StopWaveformAnimation();
+        StopPulseAnimation();
 
         RecordIcon.Glyph = "\uE720";
         RecordButton.Background = null;
@@ -476,73 +467,30 @@ public sealed partial class VoiceNoteWindow : Window
         StatusText.Text = "Note enregistr\u00e9e !";
     }
 
-    // ── Waveform animation ───────────────────────────────────────
+    // ── Record button pulse animation ────────────────────────────
 
-    private void StartWaveformAnimation()
+    private void StartPulseAnimation()
     {
-        Array.Clear(_waveformBars);
-        Array.Clear(_waveformTargets);
+        var visual = ElementCompositionPreview.GetElementVisual(RecordButton);
+        var compositor = visual.Compositor;
 
-        _waveformTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-        _waveformTimer.Tick += WaveformTick;
-        _waveformTimer.Start();
+        visual.CenterPoint = new Vector3(24f, 24f, 0f); // half of 48×48
+
+        var anim = compositor.CreateVector3KeyFrameAnimation();
+        anim.InsertKeyFrame(0f, new Vector3(1f, 1f, 1f));
+        anim.InsertKeyFrame(0.5f, new Vector3(1.12f, 1.12f, 1f));
+        anim.InsertKeyFrame(1f, new Vector3(1f, 1f, 1f));
+        anim.Duration = TimeSpan.FromMilliseconds(1200);
+        anim.IterationBehavior = Microsoft.UI.Composition.AnimationIterationBehavior.Forever;
+
+        visual.StartAnimation("Scale", anim);
     }
 
-    private void StopWaveformAnimation()
+    private void StopPulseAnimation()
     {
-        _waveformTimer?.Stop();
-        _waveformTimer = null;
-        DrawWaveformBars(clear: true);
-    }
-
-    private void WaveformTick(object? sender, object e)
-    {
-        for (int i = 0; i < _waveformTargets.Length - 1; i++)
-            _waveformTargets[i] = _waveformTargets[i + 1];
-
-        var level = Math.Clamp(_currentAudioLevel * 8f, 0f, 1f);
-        var rand = Random.Shared.NextSingle() * 0.3f;
-        _waveformTargets[^1] = Math.Clamp(level + rand * level, 0f, 1f);
-
-        for (int i = 0; i < _waveformBars.Length; i++)
-        {
-            _waveformBars[i] += (_waveformTargets[i] - _waveformBars[i]) * 0.3f;
-        }
-
-        DrawWaveformBars();
-    }
-
-    private void DrawWaveformBars(bool clear = false)
-    {
-        WaveformCanvas.Children.Clear();
-
-        var width = WaveformCanvas.ActualWidth;
-        var height = WaveformCanvas.ActualHeight;
-        if (width <= 0 || height <= 0) return;
-        if (clear) return;
-
-        int barCount = _waveformBars.Length;
-        double barWidth = Math.Max(2, (width - (barCount - 1) * 2) / barCount);
-        double gap = 2;
-        double totalWidth = barCount * barWidth + (barCount - 1) * gap;
-        double startX = (width - totalWidth) / 2;
-
-        for (int i = 0; i < barCount; i++)
-        {
-            var barHeight = Math.Max(4, _waveformBars[i] * height * 0.8);
-            var rect = new Microsoft.UI.Xaml.Shapes.Rectangle
-            {
-                Width = barWidth,
-                Height = barHeight,
-                RadiusX = barWidth / 2,
-                RadiusY = barWidth / 2,
-                Fill = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"]
-            };
-
-            Canvas.SetLeft(rect, startX + i * (barWidth + gap));
-            Canvas.SetTop(rect, (height - barHeight) / 2);
-            WaveformCanvas.Children.Add(rect);
-        }
+        var visual = ElementCompositionPreview.GetElementVisual(RecordButton);
+        visual.StopAnimation("Scale");
+        visual.Scale = new Vector3(1f, 1f, 1f);
     }
 
     // ── Window chrome ────────────────────────────────────────────

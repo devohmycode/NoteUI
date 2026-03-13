@@ -32,15 +32,7 @@ public static class SttModels
 {
     public static readonly SttModelInfo[] Available =
     [
-        new()
-        {
-            Id = "vosk-model-small-fr-0.22",
-            Name = "Vosk Fran\u00e7ais (small)",
-            Engine = SttEngine.Vosk,
-            DownloadUrl = "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip",
-            SizeMB = 40,
-            Languages = "Fran\u00e7ais"
-        },
+        // English
         new()
         {
             Id = "vosk-model-small-en-us-0.15",
@@ -49,16 +41,6 @@ public static class SttModels
             DownloadUrl = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
             SizeMB = 40,
             Languages = "Anglais"
-        },
-        new()
-        {
-            Id = "ggml-tiny",
-            Name = "Whisper tiny (FR)",
-            Engine = SttEngine.Whisper,
-            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-            SizeMB = 75,
-            Languages = "Fran\u00e7ais",
-            WhisperLanguage = "fr"
         },
         new()
         {
@@ -72,16 +54,6 @@ public static class SttModels
         },
         new()
         {
-            Id = "ggml-base",
-            Name = "Whisper base (FR)",
-            Engine = SttEngine.Whisper,
-            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-            SizeMB = 140,
-            Languages = "Fran\u00e7ais",
-            WhisperLanguage = "fr"
-        },
-        new()
-        {
             Id = "ggml-base.en",
             Name = "Whisper base (EN)",
             Engine = SttEngine.Whisper,
@@ -92,16 +64,6 @@ public static class SttModels
         },
         new()
         {
-            Id = "ggml-small",
-            Name = "Whisper small (FR)",
-            Engine = SttEngine.Whisper,
-            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-            SizeMB = 460,
-            Languages = "Fran\u00e7ais",
-            WhisperLanguage = "fr"
-        },
-        new()
-        {
             Id = "ggml-small.en",
             Name = "Whisper small (EN)",
             Engine = SttEngine.Whisper,
@@ -109,6 +71,46 @@ public static class SttModels
             SizeMB = 460,
             Languages = "Anglais",
             WhisperLanguage = "en"
+        },
+        // Français
+        new()
+        {
+            Id = "vosk-model-small-fr-0.22",
+            Name = "Vosk Fran\u00e7ais (small)",
+            Engine = SttEngine.Vosk,
+            DownloadUrl = "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip",
+            SizeMB = 40,
+            Languages = "Fran\u00e7ais"
+        },
+        new()
+        {
+            Id = "ggml-tiny",
+            Name = "Whisper tiny (FR)",
+            Engine = SttEngine.Whisper,
+            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+            SizeMB = 75,
+            Languages = "Fran\u00e7ais",
+            WhisperLanguage = "fr"
+        },
+        new()
+        {
+            Id = "ggml-base",
+            Name = "Whisper base (FR)",
+            Engine = SttEngine.Whisper,
+            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+            SizeMB = 140,
+            Languages = "Fran\u00e7ais",
+            WhisperLanguage = "fr"
+        },
+        new()
+        {
+            Id = "ggml-small",
+            Name = "Whisper small (FR)",
+            Engine = SttEngine.Whisper,
+            DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+            SizeMB = 460,
+            Languages = "Fran\u00e7ais",
+            WhisperLanguage = "fr"
         },
     ];
 }
@@ -207,6 +209,7 @@ public class VoskRecognizer : ISpeechRecognizer
     private readonly WaveInEvent _waveIn;
     private readonly Vosk.VoskRecognizer _recognizer;
     private readonly Model _model;
+    private volatile bool _disposed;
 
     public VoskRecognizer(string modelPath)
     {
@@ -228,6 +231,8 @@ public class VoskRecognizer : ISpeechRecognizer
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
+        if (_disposed) return;
+
         float sum = 0;
         for (int i = 0; i < e.BytesRecorded; i += 2)
         {
@@ -237,6 +242,8 @@ public class VoskRecognizer : ISpeechRecognizer
         }
         var rms = MathF.Sqrt(sum / (e.BytesRecorded / 2f));
         OnAudioLevel?.Invoke(rms);
+
+        if (_disposed) return;
 
         if (_recognizer.AcceptWaveform(e.Buffer, e.BytesRecorded))
         {
@@ -276,6 +283,8 @@ public class VoskRecognizer : ISpeechRecognizer
 
     public void Dispose()
     {
+        _disposed = true;
+        _waveIn.DataAvailable -= OnDataAvailable;
         _waveIn.StopRecording();
         _waveIn.Dispose();
         _recognizer.Dispose();
@@ -297,6 +306,7 @@ public class WhisperRecognizer : ISpeechRecognizer
     private readonly object _bufferLock = new();
     private CancellationTokenSource? _cts;
     private Task? _processingTask;
+    private volatile bool _disposed;
     private const int ChunkSizeBytes = 16000 * 2 * 3; // 3 seconds
 
     public WhisperRecognizer(string modelPath, string language = "auto")
@@ -324,13 +334,17 @@ public class WhisperRecognizer : ISpeechRecognizer
 
     public void Stop()
     {
+        _disposed = true;
+        _waveIn.DataAvailable -= OnDataAvailable;
         _waveIn.StopRecording();
         _cts?.Cancel();
-        _processingTask?.Wait(TimeSpan.FromSeconds(5));
+        // Don't block UI thread — let processing task finish asynchronously
     }
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
+        if (_disposed) return;
+
         float sum = 0;
         for (int i = 0; i < e.BytesRecorded; i += 2)
         {
@@ -386,7 +400,7 @@ public class WhisperRecognizer : ISpeechRecognizer
             _audioBuffer.Clear();
         }
 
-        if (remaining.Length > 1600)
+        if (remaining.Length > 1600 && !_disposed)
         {
             var samples = ConvertToFloat(remaining);
             try
@@ -394,10 +408,11 @@ public class WhisperRecognizer : ISpeechRecognizer
                 var sb = new System.Text.StringBuilder();
                 await foreach (var segment in _processor.ProcessAsync(samples))
                 {
+                    if (_disposed) break;
                     sb.Append(segment.Text);
                 }
                 var text = sb.ToString().Trim();
-                if (!string.IsNullOrWhiteSpace(text))
+                if (!string.IsNullOrWhiteSpace(text) && !_disposed)
                     OnFinalResult?.Invoke(text);
             }
             catch { }
@@ -416,7 +431,11 @@ public class WhisperRecognizer : ISpeechRecognizer
 
     public void Dispose()
     {
+        _disposed = true;
+        _waveIn.DataAvailable -= OnDataAvailable;
         _waveIn.StopRecording();
+        _cts?.Cancel();
+        try { _processingTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _waveIn.Dispose();
         _processor.Dispose();
         _cts?.Dispose();
