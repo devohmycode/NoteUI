@@ -286,7 +286,9 @@ public sealed partial class MainWindow : Window
 
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
-        OpenNotepad();
+        var note = _notes.CreateNote();
+        RefreshCurrentView();
+        OpenNote(note.Id);
     }
 
     private void OpenNotepad()
