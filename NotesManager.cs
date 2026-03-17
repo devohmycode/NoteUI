@@ -334,11 +334,47 @@ public class NotesManager
         Save();
     }
 
+    public void ToggleFavorite(string id)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.IsFavorite = !note.IsFavorite;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public void UpdateNoteTags(string id, List<string> tags)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.Tags = tags;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public void UpdateNoteReminder(string id, DateTime? reminderAt)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.ReminderAt = reminderAt;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public List<string> GetAllTags()
+    {
+        return _notes
+            .SelectMany(n => n.Tags)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t)
+            .ToList();
+    }
+
     public List<NoteEntry> GetSorted()
     {
         return _notes
             .OrderByDescending(n => n.IsPinned)
-            .ThenByDescending(n => n.UpdatedAt)
+            .ThenByDescending(n => n.CreatedAt)
             .ToList();
     }
 }
@@ -358,6 +394,9 @@ public class NoteEntry
     public string Content { get; set; } = "";
     public string Color { get; set; } = "Yellow";
     public bool IsPinned { get; set; }
+    public bool IsFavorite { get; set; }
+    public List<string> Tags { get; set; } = [];
+    public DateTime? ReminderAt { get; set; }
     public string NoteType { get; set; } = "note"; // "note" or "tasklist"
     public List<TaskItem> Tasks { get; set; } = [];
     public DateTime CreatedAt { get; set; }
@@ -370,8 +409,6 @@ public class NoteEntry
     {
         get
         {
-            if (UpdatedAt.Year == DateTime.Now.Year)
-                return $"{UpdatedAt.Day} {MonthNames[UpdatedAt.Month]}";
             return UpdatedAt.ToString("dd/MM/yyyy");
         }
     }
@@ -434,7 +471,7 @@ public class NoteEntry
                     while (i < rtf.Length && char.IsLetter(rtf[i])) { word.Append(rtf[i]); i++; }
                     var w = word.ToString();
                     if (w == "par" || w == "line") result.Append('\n');
-                    if (w == "tab") result.Append('\t');
+                    if (w == "tab") result.Append(' ');
                     if (i < rtf.Length && (rtf[i] == '-' || char.IsDigit(rtf[i])))
                     {
                         if (rtf[i] == '-') i++;
@@ -448,7 +485,12 @@ public class NoteEntry
                 result.Append(c);
             i++;
         }
-        return result.ToString().Trim();
+        // Collapse multiple spaces and clean up bullet list artifacts
+        var text = result.ToString();
+        var lines = text.Split('\n');
+        for (int j = 0; j < lines.Length; j++)
+            lines[j] = System.Text.RegularExpressions.Regex.Replace(lines[j].Trim(), @"\s{2,}", " ");
+        return string.Join("\n", lines).Trim();
     }
 }
 
@@ -456,6 +498,7 @@ public static class NoteColors
 {
     public static readonly (string Name, string Hex, string Display)[] All =
     [
+        ("None", "", "Sans couleur"),
         ("Yellow", "#FFF9B1", "Jaune"),
         ("Green", "#E2F6D3", "Vert"),
         ("Mint", "#C8F7E1", "Menthe"),
@@ -472,14 +515,20 @@ public static class NoteColors
         ("Charcoal", "#D8D8D8", "Anthracite"),
     ];
 
+    public static bool IsNone(string name) => name == "None";
+
     public static Windows.UI.Color Get(string name)
     {
+        if (IsNone(name))
+            return new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 };
         var hex = All.FirstOrDefault(c => c.Name == name).Hex ?? "#FFF9B1";
         return ColorFromHex(hex);
     }
 
     public static Windows.UI.Color GetDarker(string name, double factor = 0.92)
     {
+        if (IsNone(name))
+            return new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 };
         var c = Get(name);
         return new Windows.UI.Color
         {

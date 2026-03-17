@@ -112,16 +112,33 @@ public static class ActionPanel
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var dot = new Ellipse
+            FrameworkElement dot;
+            if (NoteColors.IsNone(name))
             {
-                Width = 18,
-                Height = 18,
-                Fill = new SolidColorBrush(NoteColors.ColorFromHex(hex)),
-                Stroke = new SolidColorBrush(
-                    new Windows.UI.Color { A = 60, R = 0, G = 0, B = 0 }),
-                StrokeThickness = 1,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+                dot = new Ellipse
+                {
+                    Width = 18,
+                    Height = 18,
+                    Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                    Stroke = new SolidColorBrush(
+                        new Windows.UI.Color { A = 100, R = 128, G = 128, B = 128 }),
+                    StrokeThickness = 1.5,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
+            else
+            {
+                dot = new Ellipse
+                {
+                    Width = 18,
+                    Height = 18,
+                    Fill = new SolidColorBrush(NoteColors.ColorFromHex(hex)),
+                    Stroke = new SolidColorBrush(
+                        new Windows.UI.Color { A = 60, R = 0, G = 0, B = 0 }),
+                    StrokeThickness = 1,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
             Grid.SetColumn(dot, 0);
 
             var text = new TextBlock
@@ -169,7 +186,9 @@ public static class ActionPanel
         Action<string> onThemeSelected, Action<string> onBackdropSelected,
         Action onChangeFolder, Action onResetFolder,
         Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
-        Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav)
+        Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        Action<Flyout>? onShowVoiceModels = null,
+        Action<Flyout>? onShowShortcuts = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -348,6 +367,30 @@ public static class ActionPanel
             panel.Children.Add(connectWdBtn);
         }
 
+        // Voice model section
+        if (onShowVoiceModels != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader("Vocal"));
+            panel.Children.Add(CreateSeparator());
+            var voiceBtn = CreateCheckItem("Mod\u00e8le vocal", false, () => onShowVoiceModels(flyout));
+            voiceBtn.Tag = "Mod\u00e8le vocal TTS STT";
+            allButtons.Add(voiceBtn);
+            panel.Children.Add(voiceBtn);
+        }
+
+        // Shortcuts section
+        if (onShowShortcuts != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader("Raccourcis"));
+            panel.Children.Add(CreateSeparator());
+            var shortcutsBtn = CreateCheckItem("Shortcuts", false, () => onShowShortcuts(flyout));
+            shortcutsBtn.Tag = "Shortcuts Raccourcis clavier";
+            allButtons.Add(shortcutsBtn);
+            panel.Children.Add(shortcutsBtn);
+        }
+
         // Search
         panel.Children.Add(CreateSeparator());
         var searchBox = new TextBox
@@ -444,7 +487,7 @@ public static class ActionPanel
         };
     }
 
-    private static Button CreateButton(ActionItem action, Action handler)
+    internal static Button CreateButton(ActionItem action, Action handler)
     {
         var btn = new Button
         {
@@ -518,11 +561,333 @@ public static class ActionPanel
         return btn;
     }
 
+    public static void ShowVoiceModelsPanel(Flyout flyout, string? currentModelId,
+        XamlRoot xamlRoot,
+        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back button + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = "Mod\u00e8le vocal",
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        // French models
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Fran\u00e7ais",
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+        foreach (var model in SttModels.Available.Where(m => m.Languages == "Fran\u00e7ais"))
+            panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
+
+        // English models
+        panel.Children.Add(new TextBlock
+        {
+            Text = "English",
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+        foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
+            panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
+
+        flyout.Content = panel;
+    }
+
+    private static UIElement CreateModelItem(SttModelInfo model, string? currentModelId,
+        Flyout parentFlyout, XamlRoot xamlRoot, Action<SttModelInfo> onSelect, Action<SttModelInfo> onDelete, Action onRebuild)
+    {
+        var isCurrent = model.Id == currentModelId;
+        var isDownloaded = model.IsDownloaded;
+        var engine = model.Engine == SttEngine.Vosk ? "Vosk" : "Whisper";
+        var status = isCurrent ? "\u25cf Actif" : isDownloaded ? "T\u00e9l\u00e9charg\u00e9" : $"{model.SizeMB} MB";
+
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 7, 10, 7),
+            CornerRadius = new CornerRadius(5),
+            Tag = model.Name
+        };
+
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textPanel = new StackPanel { Spacing = 1 };
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = model.Name,
+            FontSize = 13,
+            FontWeight = isCurrent
+                ? Microsoft.UI.Text.FontWeights.SemiBold
+                : Microsoft.UI.Text.FontWeights.Normal,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+        });
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = $"{engine} \u2014 {status}",
+            FontSize = 11,
+            Foreground = isCurrent
+                ? (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"]
+                : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"]
+        });
+        Grid.SetColumn(textPanel, 0);
+        grid.Children.Add(textPanel);
+
+        if (isDownloaded)
+        {
+            var check = new FontIcon
+            {
+                Glyph = "\uE73E",
+                FontSize = 14,
+                Foreground = (Brush)Application.Current.Resources["SystemFillColorSuccessBrush"],
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(check, 1);
+            grid.Children.Add(check);
+        }
+        else
+        {
+            var downloadIcon = new FontIcon
+            {
+                Glyph = "\uE896",
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(downloadIcon, 1);
+            grid.Children.Add(downloadIcon);
+        }
+
+        btn.Content = grid;
+
+        if (isDownloaded)
+        {
+            btn.Click += (_, _) =>
+            {
+                onSelect(model);
+                parentFlyout.Hide();
+            };
+
+            // Right-click context menu using ContextFlyout (doesn't close parent flyout)
+            var menuFlyout = new MenuFlyout();
+            var deleteMenuItem = new MenuFlyoutItem
+            {
+                Text = "Supprimer",
+                Icon = new FontIcon { Glyph = "\uE74D" }
+            };
+            deleteMenuItem.Click += (_, _) => onDelete(model);
+            menuFlyout.Items.Add(deleteMenuItem);
+            btn.ContextFlyout = menuFlyout;
+        }
+        else
+        {
+            btn.Click += async (s, _) =>
+            {
+                parentFlyout.Hide();
+                using var cts = new CancellationTokenSource();
+
+                var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar
+                {
+                    Minimum = 0, Maximum = 100, Value = 0
+                };
+                var statusText = new TextBlock
+                {
+                    Text = $"T\u00e9l\u00e9chargement de {model.Name}...",
+                    FontSize = 12
+                };
+                var sizeText = new TextBlock
+                {
+                    Text = $"{model.SizeMB} MB",
+                    FontSize = 11,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"]
+                };
+
+                var contentPanel = new StackPanel { Spacing = 8 };
+                contentPanel.Children.Add(statusText);
+                contentPanel.Children.Add(progressBar);
+                contentPanel.Children.Add(sizeText);
+
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = xamlRoot,
+                    Title = "T\u00e9l\u00e9chargement",
+                    Content = contentPanel,
+                    CloseButtonText = "Annuler"
+                };
+
+                var progress = new Progress<double>(p =>
+                {
+                    progressBar.Value = p * 100;
+                    statusText.Text = $"T\u00e9l\u00e9chargement... {p * 100:F0}%";
+                });
+
+                bool success = false;
+                string? errorMsg = null;
+
+                var downloadTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ModelDownloader.DownloadAsync(model, progress, cts.Token);
+                        success = true;
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { errorMsg = ex.Message; }
+                    dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide());
+                });
+
+                await dialog.ShowAsync();
+                if (!success) cts.Cancel();
+                try { await downloadTask; } catch { }
+
+                if (success)
+                {
+                    onSelect(model);
+                }
+                else if (errorMsg != null)
+                {
+                    var errDlg = new ContentDialog
+                    {
+                        XamlRoot = xamlRoot,
+                        Title = "Erreur",
+                        Content = errorMsg,
+                        CloseButtonText = "OK"
+                    };
+                    await errDlg.ShowAsync();
+                }
+            };
+        }
+
+        return btn;
+    }
+
     private static string ShortenPath(string path)
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
             return "~" + path[userProfile.Length..];
         return path.Length > 35 ? "..." + path[^32..] : path;
+    }
+
+    internal static void ShowShortcutsPanel(Flyout flyout, List<HotkeyService.ShortcutEntry> shortcuts,
+        Action<List<HotkeyService.ShortcutEntry>> onSave, Action onBack)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = "Raccourcis clavier",
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        var edited = shortcuts.ToList();
+
+        for (int i = 0; i < edited.Count; i++)
+        {
+            var idx = i;
+            var entry = edited[i];
+
+            var row = new StackPanel { Spacing = 4, Margin = new Thickness(10, 8, 10, 8) };
+
+            row.Children.Add(new TextBlock
+            {
+                Text = entry.DisplayLabel,
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
+            });
+
+            var keyBox = new TextBox
+            {
+                Text = entry.KeyDisplay,
+                IsReadOnly = true,
+                FontSize = 12,
+                Padding = new Thickness(8, 5, 8, 5),
+                PlaceholderText = "Appuyez sur les touches...",
+                TextAlignment = TextAlignment.Center,
+            };
+
+            keyBox.PreviewKeyDown += (_, e) =>
+            {
+                e.Handled = true;
+                var (mods, vk) = HotkeyService.ParseKeyEvent(e.Key);
+                if (vk == 0) // modifier-only, show partial
+                {
+                    keyBox.Text = HotkeyService.FormatShortcut(mods, 0);
+                    if (!string.IsNullOrEmpty(keyBox.Text))
+                        keyBox.Text += " + ...";
+                    return;
+                }
+                keyBox.Text = HotkeyService.FormatShortcut(mods, vk);
+                edited[idx] = entry with { Modifiers = mods, VirtualKey = vk };
+                onSave(edited);
+            };
+
+            row.Children.Add(keyBox);
+            panel.Children.Add(row);
+
+            if (i < edited.Count - 1)
+                panel.Children.Add(CreateSeparator());
+        }
+
+        flyout.Content = panel;
     }
 }

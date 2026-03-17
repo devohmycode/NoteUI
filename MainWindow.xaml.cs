@@ -22,6 +22,12 @@ public sealed partial class MainWindow : Window
     private AcrylicSettingsWindow? _acrylicSettingsWindow;
     private VoiceNoteWindow? _voiceNoteWindow;
 
+    private NotepadWindow? _notepadWindow;
+
+    private enum ViewMode { Notes, Favorites, Tags, TagFilter }
+    private ViewMode _currentView = ViewMode.Notes;
+    private string? _currentTagFilter;
+
     private bool _isPinned;
     private bool _isCompact;
     private const int FullHeight = 650;
@@ -90,7 +96,7 @@ public sealed partial class MainWindow : Window
         RefreshNotesList();
 
         _reminderService = new ReminderService(_notes);
-        _reminderService.ReminderFired += () => DispatcherQueue.TryEnqueue(() => RefreshNotesList(SearchBox.Text));
+        _reminderService.ReminderFired += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
 
         // Auto-connect cloud sync if previously configured
         _ = InitCloudSync();
@@ -100,7 +106,7 @@ public sealed partial class MainWindow : Window
     {
         await _notes.InitFirebaseFromSettings();
         await _notes.InitWebDavFromSettings();
-        RefreshNotesList();
+        RefreshCurrentView();
     }
 
     private void ExitApplication()
@@ -143,10 +149,8 @@ public sealed partial class MainWindow : Window
         var border = new Border
         {
             Background = new SolidColorBrush(color),
-            CornerRadius = new CornerRadius(4),
+            CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16, 10, 16, 16),
-            Shadow = new ThemeShadow(),
-            Translation = new System.Numerics.Vector3(0, 0, 16),
         };
 
         var grid = new Grid();
@@ -154,9 +158,10 @@ public sealed partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var topRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 4 };
+        var metaPanel = topRow;
         if (note.IsPinned)
         {
-            topRow.Children.Add(new FontIcon
+            metaPanel.Children.Add(new FontIcon
             {
                 Glyph = "\uE718",
                 FontSize = 10,
@@ -166,7 +171,7 @@ public sealed partial class MainWindow : Window
         }
         if (!string.IsNullOrEmpty(note.TaskProgress))
         {
-            topRow.Children.Add(new TextBlock
+            metaPanel.Children.Add(new TextBlock
             {
                 Text = note.TaskProgress,
                 FontSize = 11,
@@ -174,7 +179,7 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
-        topRow.Children.Add(new TextBlock
+        metaPanel.Children.Add(new TextBlock
         {
             Text = note.DateDisplay,
             FontSize = 12,
@@ -223,7 +228,7 @@ public sealed partial class MainWindow : Window
             new(pinGlyph, pinLabel, [], () =>
             {
                 _notes.TogglePin(noteId);
-                RefreshNotesList(SearchBox.Text);
+                RefreshCurrentView();
             }),
             new("\uE70F", "Modifier", [], () => OpenNote(noteId)),
             new("\uE8C8", "Dupliquer", [], () =>
@@ -231,7 +236,7 @@ public sealed partial class MainWindow : Window
                 var copy = _notes.DuplicateNote(noteId);
                 if (copy != null)
                 {
-                    RefreshNotesList(SearchBox.Text);
+                    RefreshCurrentView();
                     OpenNote(copy.Id);
                 }
             }),
@@ -243,7 +248,7 @@ public sealed partial class MainWindow : Window
                     try { existing.Close(); } catch { }
                 }
                 _notes.DeleteNote(noteId);
-                RefreshNotesList(SearchBox.Text);
+                RefreshCurrentView();
             }, IsDestructive: true),
         };
 
@@ -268,11 +273,11 @@ public sealed partial class MainWindow : Window
         var parentRect = new NoteWindow.ParentRect(pos.X, pos.Y, sz.Width, sz.Height);
         var window = new NoteWindow(_notes, note, parentRect);
         _openNoteWindows.Add(window);
-        window.NoteChanged += () => RefreshNotesList(SearchBox.Text);
+        window.NoteChanged += () => RefreshCurrentView();
         window.Closed += (_, _) =>
         {
             _openNoteWindows.Remove(window);
-            RefreshNotesList(SearchBox.Text);
+            RefreshCurrentView();
         };
         window.Activate();
     }
@@ -281,26 +286,21 @@ public sealed partial class MainWindow : Window
 
     private void AddButton_Click(object sender, RoutedEventArgs e)
     {
-        var actions = new List<ActionPanel.ActionItem>
-        {
-            new("\uE70F", "Nouvelle note", [], () =>
-            {
-                var note = _notes.CreateNote();
-                RefreshNotesList(SearchBox.Text);
-                OpenNote(note.Id);
-            }),
-            new("\uE73A", "Liste de t\u00e2ches", [], () =>
-            {
-                var note = _notes.CreateTaskList();
-                RefreshNotesList(SearchBox.Text);
-                OpenNote(note.Id);
-            }),
-            new("\uE720", "Note audio", [], OpenVoiceNote),
-        };
+        OpenNotepad();
+    }
 
-        var flyout = ActionPanel.Create("Nouveau", actions);
-        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
-        flyout.ShowAt(AddButton);
+    private void OpenNotepad()
+    {
+        if (_notepadWindow != null)
+        {
+            _notepadWindow.Activate();
+            return;
+        }
+
+        _notepadWindow = new NotepadWindow(_notes);
+        _notepadWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
+        _notepadWindow.Closed += (_, _) => _notepadWindow = null;
+        _notepadWindow.Activate();
     }
 
     private void OpenVoiceNote()
@@ -312,7 +312,7 @@ public sealed partial class MainWindow : Window
         }
 
         _voiceNoteWindow = new VoiceNoteWindow(_notes);
-        _voiceNoteWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshNotesList(SearchBox.Text));
+        _voiceNoteWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
         _voiceNoteWindow.Closed += (_, _) => _voiceNoteWindow = null;
         _voiceNoteWindow.Activate();
     }
@@ -351,7 +351,7 @@ public sealed partial class MainWindow : Window
             onResetFolder: () =>
             {
                 _notes.ChangeFolder(AppSettings.GetDefaultNotesFolder());
-                RefreshNotesList();
+                SwitchView(ViewMode.Notes);
             },
             onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
             onDisconnectFirebase: () =>
@@ -361,7 +361,7 @@ public sealed partial class MainWindow : Window
             onSyncFirebase: async () =>
             {
                 await _notes.SyncFromFirebase();
-                RefreshNotesList();
+                RefreshCurrentView();
             },
             onConfigureWebDav: async () => await ShowWebDavConfigDialog(),
             onDisconnectWebDav: () =>
@@ -371,11 +371,70 @@ public sealed partial class MainWindow : Window
             onSyncWebDav: async () =>
             {
                 await _notes.SyncFromWebDav();
-                RefreshNotesList();
-            });
+                RefreshCurrentView();
+            },
+            onShowVoiceModels: f => ShowVoiceModelsInSettings(f));
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
+    }
+
+    private void ShowVoiceModelsInSettings(Flyout flyout)
+    {
+        var settingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI");
+        var settingsPath = Path.Combine(settingsDir, "voice_settings.json");
+        string? currentModelId = null;
+        try
+        {
+            if (File.Exists(settingsPath))
+            {
+                var json = File.ReadAllText(settingsPath);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                currentModelId = doc.RootElement.GetProperty("selectedModelId").GetString();
+            }
+        }
+        catch { }
+
+        void RebuildModelsPanel()
+        {
+            ActionPanel.ShowVoiceModelsPanel(flyout, currentModelId, Content.XamlRoot,
+                onSelectModel: model =>
+                {
+                    currentModelId = model.Id;
+                    try
+                    {
+                        Directory.CreateDirectory(settingsDir);
+                        var json = System.Text.Json.JsonSerializer.Serialize(new { selectedModelId = model.Id });
+                        File.WriteAllText(settingsPath, json);
+                    }
+                    catch { }
+                },
+                onDeleteModel: model =>
+                {
+                    try
+                    {
+                        if (Directory.Exists(model.ModelDir))
+                            Directory.Delete(model.ModelDir, true);
+                    }
+                    catch { }
+                    if (currentModelId == model.Id)
+                    {
+                        currentModelId = null;
+                        try { File.Delete(settingsPath); } catch { }
+                    }
+                    // Rebuild the models list in-place (flyout stays open)
+                    RebuildModelsPanel();
+                },
+                onBack: () =>
+                {
+                    // Re-show main settings
+                    Settings_Click(this, new RoutedEventArgs());
+                },
+                onRebuild: RebuildModelsPanel);
+        }
+
+        RebuildModelsPanel();
     }
 
     private async Task PickNotesFolder()
@@ -395,7 +454,7 @@ public sealed partial class MainWindow : Window
                 try { w.Close(); } catch { }
             }
             _notes.ChangeFolder(folder.Path);
-            RefreshNotesList();
+            SwitchView(ViewMode.Notes);
         }
     }
 
@@ -469,7 +528,7 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromWebDav();
-                RefreshNotesList();
+                RefreshCurrentView();
                 break;
             }
 
@@ -565,7 +624,7 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
-                RefreshNotesList();
+                RefreshCurrentView();
                 googleSignInDone = true;
             }
             else
@@ -599,7 +658,7 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
-                RefreshNotesList();
+                RefreshCurrentView();
                 break;
             }
 
@@ -691,9 +750,246 @@ public sealed partial class MainWindow : Window
         AppWindow.Hide();
     }
 
+    private void QuickAccessButton_Click(object sender, RoutedEventArgs e)
+    {
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new("\uE734", "Favoris", [], () => SwitchView(ViewMode.Favorites)),
+            new("\uE1CB", "Tags", [], () => SwitchView(ViewMode.Tags)),
+        };
+
+        var flyout = ActionPanel.Create("Acc\u00e8s rapide", actions);
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
+        flyout.ShowAt(QuickAccessButton);
+    }
+
+    private void SwitchView(ViewMode mode)
+    {
+        _currentView = mode;
+        _currentTagFilter = null;
+        RefreshCurrentView();
+    }
+
+    private void GoBack()
+    {
+        if (_currentView == ViewMode.TagFilter)
+            SwitchView(ViewMode.Tags);
+        else
+            SwitchView(ViewMode.Notes);
+    }
+
+    private void BackIcon_Tapped(object sender, TappedRoutedEventArgs e) => GoBack();
+
+    private void TitleLabel_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (_currentView != ViewMode.Notes)
+            GoBack();
+    }
+
+    private void RefreshCurrentView()
+    {
+        BackIcon.Visibility = _currentView == ViewMode.Notes
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        switch (_currentView)
+        {
+            case ViewMode.Notes:
+                TitleLabel.Text = "Notes";
+                RefreshNotesList(SearchBox.Text);
+                break;
+            case ViewMode.Favorites:
+                TitleLabel.Text = "Favoris";
+                ShowFavorites(SearchBox.Text);
+                break;
+            case ViewMode.Tags:
+                TitleLabel.Text = "Tags";
+                ShowTags(SearchBox.Text);
+                break;
+            case ViewMode.TagFilter:
+                TitleLabel.Text = $"#{_currentTagFilter}";
+                ShowNotesForTag(_currentTagFilter!, SearchBox.Text);
+                break;
+        }
+    }
+
+    private void ShowFavorites(string? search = null)
+    {
+        NotesList.Children.Clear();
+        var favorites = _notes.GetSorted().Where(n => n.IsFavorite).ToList();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            favorites = favorites.Where(n =>
+                n.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                n.Preview.Contains(search, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+
+        if (favorites.Count == 0)
+        {
+            NotesList.Children.Add(CreateEmptyState("\uE734", "Aucun favori"));
+            return;
+        }
+
+        var index = 0;
+        foreach (var note in favorites)
+        {
+            var card = CreateNoteCard(note);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
+    }
+
+    private void ShowTags(string? search = null)
+    {
+        NotesList.Children.Clear();
+        var tags = _notes.GetAllTags();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            tags = tags.Where(t => t.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        if (tags.Count == 0)
+        {
+            NotesList.Children.Add(CreateEmptyState("\uE1CB", "Aucun tag"));
+            return;
+        }
+
+        var index = 0;
+        foreach (var tag in tags)
+        {
+            var noteCount = _notes.Notes.Count(n => n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+            var card = CreateTagCard(tag, noteCount);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
+    }
+
+    private void ShowNotesForTag(string tag, string? search = null)
+    {
+        NotesList.Children.Clear();
+        var notes = _notes.GetSorted()
+            .Where(n => n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            notes = notes.Where(n =>
+                n.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                n.Preview.Contains(search, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+
+        if (notes.Count == 0)
+        {
+            NotesList.Children.Add(CreateEmptyState("\uE1CB", $"Aucune note avec #{tag}"));
+            return;
+        }
+
+        var index = 0;
+        foreach (var note in notes)
+        {
+            var card = CreateNoteCard(note);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
+    }
+
+    private UIElement CreateTagCard(string tag, int noteCount)
+    {
+        var border = new Border
+        {
+            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(16, 12, 16, 12),
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var icon = new FontIcon
+        {
+            Glyph = "\uE1CB",
+            FontSize = 14,
+            Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+        Grid.SetColumn(icon, 0);
+
+        var label = new TextBlock
+        {
+            Text = $"#{tag}",
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(label, 1);
+
+        var count = new TextBlock
+        {
+            Text = noteCount.ToString(),
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(count, 2);
+
+        grid.Children.Add(icon);
+        grid.Children.Add(label);
+        grid.Children.Add(count);
+        border.Child = grid;
+
+        var tagName = tag;
+        border.Tapped += (_, _) =>
+        {
+            _currentView = ViewMode.TagFilter;
+            _currentTagFilter = tagName;
+            RefreshCurrentView();
+        };
+
+        return border;
+    }
+
+    private static UIElement CreateEmptyState(string glyph, string message)
+    {
+        var panel = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 40, 0, 0),
+            Spacing = 8
+        };
+
+        panel.Children.Add(new FontIcon
+        {
+            Glyph = glyph,
+            FontSize = 28,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = message,
+            FontSize = 13,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+
+        return panel;
+    }
+
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        RefreshNotesList(SearchBox.Text);
+        RefreshCurrentView();
     }
 
     // ── Drag ───────────────────────────────────────────────────
@@ -725,5 +1021,48 @@ public sealed partial class MainWindow : Window
     {
         _isDragging = false;
         ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+    }
+
+    // ── Animated buttons ──────────────────────────────────────
+
+    private void AnimatedButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is UIElement el)
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(el);
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateSpringVector3Animation();
+            anim.FinalValue = new System.Numerics.Vector3(1.15f);
+            anim.DampingRatio = 0.6f;
+            anim.Period = TimeSpan.FromMilliseconds(50);
+            visual.CenterPoint = new System.Numerics.Vector3(
+                (float)(((FrameworkElement)el).ActualWidth / 2),
+                (float)(((FrameworkElement)el).ActualHeight / 2), 0);
+            visual.StartAnimation("Scale", anim);
+        }
+    }
+
+    private void AnimatedButton_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is UIElement el)
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(el);
+            var compositor = visual.Compositor;
+            var anim = compositor.CreateSpringVector3Animation();
+            anim.FinalValue = new System.Numerics.Vector3(1.0f);
+            anim.DampingRatio = 0.6f;
+            anim.Period = TimeSpan.FromMilliseconds(50);
+            visual.StartAnimation("Scale", anim);
+        }
+    }
+
+    private void SettingsButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        AnimatedIcon.SetState(SettingsAnimatedIcon, "PointerOver");
+    }
+
+    private void SettingsButton_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        AnimatedIcon.SetState(SettingsAnimatedIcon, "Normal");
     }
 }

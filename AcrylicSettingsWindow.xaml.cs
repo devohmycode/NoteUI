@@ -147,6 +147,55 @@ public sealed partial class AcrylicSettingsWindow : Window
         ApplyChanges();
     }
 
+    private void TintColorPreview_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        ShowColorPickerFlyout((Border)sender, TintColorBox);
+    }
+
+    private void FallbackColorPreview_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        ShowColorPickerFlyout((Border)sender, FallbackColorBox);
+    }
+
+    private void ShowColorPickerFlyout(Border target, TextBox colorBox)
+    {
+        Windows.UI.Color initialColor;
+        try { initialColor = AppSettings.ParseColor(colorBox.Text); }
+        catch { initialColor = Microsoft.UI.Colors.Black; }
+
+        var picker = new ColorPicker
+        {
+            Color = initialColor,
+            IsAlphaEnabled = false,
+            IsColorSpectrumVisible = true,
+            IsColorSliderVisible = false,
+            IsHexInputVisible = false,
+            IsMoreButtonVisible = false,
+            IsColorChannelTextInputVisible = false,
+        };
+
+        var style = new Style(typeof(FlyoutPresenter));
+        style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 320));
+        style.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, 400));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8)));
+
+        var flyout = new Flyout
+        {
+            Content = picker,
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Left,
+            FlyoutPresenterStyle = style,
+        };
+
+        picker.ColorChanged += (_, args) =>
+        {
+            var c = args.NewColor;
+            var hex = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            colorBox.Text = hex;
+        };
+
+        flyout.ShowAt(target);
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => this.Close();
 
     // ── Drag ────────────────────────────────────────────────────

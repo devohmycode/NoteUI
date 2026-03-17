@@ -27,6 +27,17 @@ internal sealed class ReminderService : IDisposable
 
         foreach (var note in _notes.Notes)
         {
+            // Note-level reminder (regular notes)
+            if (note.ReminderAt != null && note.ReminderAt <= now && !_firedReminders.Contains(note.Id))
+            {
+                _firedReminders.Add(note.Id);
+                ShowToast(note.Title, "");
+                note.ReminderAt = null;
+                _notes.UpdateNoteReminder(note.Id, null);
+                changed = true;
+            }
+
+            // Task-level reminders (task lists)
             if (note.NoteType != "tasklist") continue;
 
             foreach (var task in note.Tasks)

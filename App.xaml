@@ -2,12 +2,19 @@
 <Application
     x:Class="NoteUI.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:NoteUI">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <local:ColorToBrushConverter x:Key="ColorToBrush"/>
+            <LinearGradientBrush x:Key="AccentLinearDownGradientBrush"
+                                 StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#60CDFE" Offset="0"/>
+                <GradientStop Color="#0078D4" Offset="1"/>
+            </LinearGradientBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

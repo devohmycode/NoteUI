@@ -75,7 +75,8 @@
                         <Border x:Name="TintColorPreview" Grid.Column="1"
                                 Width="32" Height="32" CornerRadius="4"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                Tapped="TintColorPreview_Tapped"/>
                     </Grid>
                 </StackPanel>
 
@@ -93,7 +94,8 @@
                         <Border x:Name="FallbackColorPreview" Grid.Column="1"
                                 Width="32" Height="32" CornerRadius="4"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                Tapped="FallbackColorPreview_Tapped"/>
                     </Grid>
                 </StackPanel>
 
