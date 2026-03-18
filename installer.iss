@@ -1,10 +1,10 @@
 [Setup]
 AppId={{B8A3D1E7-4F2C-4B9A-8E6D-1A5C3F7E9D2B}
-AppName=Notes
-AppVersion=1.0.0
+AppName=NoteUI
+AppVersion=0.0.1
 AppPublisher=NoteUI
 DefaultDirName={localappdata}\Programs\NoteUI
-DefaultGroupName=Notes
+DefaultGroupName=NoteUI
 PrivilegesRequired=lowest
 OutputDir=installer
 OutputBaseFilename=NoteUI-Setup
@@ -16,10 +16,11 @@ WizardStyle=modern
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Cr&#233;er un raccourci sur le bureau"; GroupDescription: "Raccourcis:"
-Name: "startup"; Description: "Lancer au d&#233;marrage de Windows"; GroupDescription: "Options:"
+Name: "desktopicon"; Description: "Créer un raccourci sur le bureau"; GroupDescription: "Raccourcis:"
+Name: "startup"; Description: "Lancer au démarrage de Windows"; GroupDescription: "Options:"
 
 [Files]
 Source: "bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

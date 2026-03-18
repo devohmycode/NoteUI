@@ -25,6 +25,52 @@ public static class AppSettings
 
     public static string GetDefaultNotesFolder() => DefaultNotesFolder;
 
+    // ── Language ────────────────────────────────────────────────
+
+    public static string LoadLanguage()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("language", out var prop))
+                    return prop.GetString() ?? "en";
+            }
+        }
+        catch { }
+        return "en";
+    }
+
+    public static void SaveLanguage(string lang)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["language"] = lang });
+    }
+
+    // ── Slash commands ──────────────────────────────────────────
+
+    public static bool LoadSlashEnabled()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("slashEnabled", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return true;
+    }
+
+    public static void SaveSlashEnabled(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["slashEnabled"] = enabled });
+    }
+
     public static string LoadNotesFolder()
     {
         try
@@ -48,6 +94,72 @@ public static class AppSettings
     public static void SaveNotesFolder(string folder)
     {
         MergeAndSaveSettings(new Dictionary<string, object> { ["notesFolder"] = folder });
+    }
+
+    // ── Firebase ───────────────────────────────────────────────
+
+    public static (string Url, string ApiKey, string RefreshToken) LoadFirebaseSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                var url = doc.RootElement.TryGetProperty("firebaseUrl", out var uProp)
+                    ? uProp.GetString() ?? "" : "";
+                var key = doc.RootElement.TryGetProperty("firebaseApiKey", out var kProp)
+                    ? kProp.GetString() ?? "" : "";
+                var token = doc.RootElement.TryGetProperty("firebaseRefreshToken", out var tProp)
+                    ? tProp.GetString() ?? "" : "";
+                return (url, key, token);
+            }
+        }
+        catch { }
+        return ("", "", "");
+    }
+
+    public static void SaveFirebaseSettings(string url, string apiKey, string refreshToken = "")
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["firebaseUrl"] = url,
+            ["firebaseApiKey"] = apiKey,
+            ["firebaseRefreshToken"] = refreshToken
+        });
+    }
+
+    // ── WebDAV ─────────────────────────────────────────────────
+
+    public static (string Url, string Username, string Password) LoadWebDavSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                var url = doc.RootElement.TryGetProperty("webdavUrl", out var uProp)
+                    ? uProp.GetString() ?? "" : "";
+                var user = doc.RootElement.TryGetProperty("webdavUser", out var userProp)
+                    ? userProp.GetString() ?? "" : "";
+                var pass = doc.RootElement.TryGetProperty("webdavPass", out var pProp)
+                    ? pProp.GetString() ?? "" : "";
+                return (url, user, pass);
+            }
+        }
+        catch { }
+        return ("", "", "");
+    }
+
+    public static void SaveWebDavSettings(string url, string username, string password)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["webdavUrl"] = url,
+            ["webdavUser"] = username,
+            ["webdavPass"] = password
+        });
     }
 
     // ── Apply to any window ─────────────────────────────────────

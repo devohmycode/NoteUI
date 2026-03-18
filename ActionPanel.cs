@@ -9,18 +9,22 @@ public static class ActionPanel
 {
     public record ActionItem(string? Glyph, string Label, string[] Keys, Action Handler, FrameworkElement? Icon = null, bool IsDestructive = false);
 
-    public static Style CreateFlyoutPresenterStyle(double minWidth = 260, double maxWidth = 320)
+    public static Style CreateFlyoutPresenterStyle(double minWidth = 240, double maxWidth = 300)
     {
         var style = new Style(typeof(FlyoutPresenter));
-        style.Setters.Add(new Setter(FlyoutPresenter.PaddingProperty, new Thickness(4)));
+        style.Setters.Add(new Setter(FlyoutPresenter.PaddingProperty, new Thickness(3)));
         style.Setters.Add(new Setter(FlyoutPresenter.CornerRadiusProperty, new CornerRadius(8)));
         style.Setters.Add(new Setter(FlyoutPresenter.MinWidthProperty, minWidth));
         style.Setters.Add(new Setter(FlyoutPresenter.MaxWidthProperty, maxWidth));
-        style.Setters.Add(new Setter(FlyoutPresenter.BackgroundProperty,
-            (Brush)Application.Current.Resources["AcrylicInAppFillColorDefaultBrush"]));
-        style.Setters.Add(new Setter(FlyoutPresenter.BorderBrushProperty,
-            (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"]));
+        // Background/border: let WinUI resolve the correct themed brushes
+        // via RequestedTheme set below – no manual brush resolution needed.
         style.Setters.Add(new Setter(FlyoutPresenter.BorderThicknessProperty, new Thickness(1)));
+
+        // Force the flyout to match the app theme so all children inherit
+        // the correct themed Foreground / Background automatically.
+        var requestedTheme = ThemeHelper.IsDark() ? ElementTheme.Dark : ElementTheme.Light;
+        style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, requestedTheme));
+
         return style;
     }
 
@@ -57,7 +61,7 @@ public static class ActionPanel
 
         var searchBox = new TextBox
         {
-            PlaceholderText = "Rechercher...",
+            PlaceholderText = Lang.T("search"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -91,10 +95,11 @@ public static class ActionPanel
         panel.Children.Add(CreateHeader(header));
         panel.Children.Add(CreateSeparator());
 
-        foreach (var (name, hex, display) in NoteColors.All)
+        foreach (var (name, hex) in NoteColors.All)
         {
             var isSelected = name == currentColor;
             var colorName = name;
+            var display = NoteColors.GetDisplayName(name);
 
             var btn = new Button
             {
@@ -102,33 +107,50 @@ public static class ActionPanel
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 7, 10, 7),
-                CornerRadius = new CornerRadius(5),
-                Tag = display
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
+            Tag = display
             };
 
-            var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var dot = new Ellipse
+            FrameworkElement dot;
+            if (NoteColors.IsNone(name))
             {
-                Width = 18,
-                Height = 18,
-                Fill = new SolidColorBrush(NoteColors.ColorFromHex(hex)),
-                Stroke = new SolidColorBrush(
-                    new Windows.UI.Color { A = 60, R = 0, G = 0, B = 0 }),
-                StrokeThickness = 1,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+                dot = new Ellipse
+                {
+                    Width = 18,
+                    Height = 18,
+                    Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                    Stroke = new SolidColorBrush(
+                        new Windows.UI.Color { A = 100, R = 128, G = 128, B = 128 }),
+                    StrokeThickness = 1.5,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
+            else
+            {
+                dot = new Ellipse
+                {
+                    Width = 18,
+                    Height = 18,
+                    Fill = new SolidColorBrush(NoteColors.ColorFromHex(hex)),
+                    Stroke = new SolidColorBrush(
+                        new Windows.UI.Color { A = 60, R = 0, G = 0, B = 0 }),
+                    StrokeThickness = 1,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
             Grid.SetColumn(dot, 0);
 
             var text = new TextBlock
             {
                 Text = display,
-                FontSize = 13,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+                FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(text, 1);
@@ -141,8 +163,8 @@ public static class ActionPanel
                 var check = new FontIcon
                 {
                     Glyph = "\uE73E",
-                    FontSize = 14,
-                    Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                    FontSize = 12,
+                    Opacity = 0.9,
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 Grid.SetColumn(check, 2);
@@ -164,8 +186,16 @@ public static class ActionPanel
 
     public static Flyout CreateSettings(string currentTheme, string currentBackdropType,
         string currentNotesFolder, string defaultNotesFolder,
+        bool isFirebaseConnected, string? firebaseEmail,
+        bool isWebDavConnected, string? webDavUrl,
         Action<string> onThemeSelected, Action<string> onBackdropSelected,
-        Action onChangeFolder, Action onResetFolder)
+        Action onChangeFolder, Action onResetFolder,
+        Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
+        Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        Action<Flyout>? onShowVoiceModels = null,
+        Action<Flyout>? onShowShortcuts = null,
+        string? currentLanguage = null, bool slashEnabled = true,
+        Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -174,10 +204,10 @@ public static class ActionPanel
         var allButtons = new List<Button>();
 
         // Theme section
-        panel.Children.Add(CreateHeader("Th\u00e8me"));
+        panel.Children.Add(CreateHeader(Lang.T("theme")));
         panel.Children.Add(CreateSeparator());
 
-        var themes = new[] { ("system", "Syst\u00e8me"), ("light", "Clair"), ("dark", "Sombre") };
+        var themes = new[] { ("system", Lang.T("theme_system")), ("light", Lang.T("theme_light")), ("dark", Lang.T("theme_dark")) };
         foreach (var (key, label) in themes)
         {
             var k = key;
@@ -192,7 +222,7 @@ public static class ActionPanel
 
         // Backdrop section
         panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader("Fond"));
+        panel.Children.Add(CreateHeader(Lang.T("backdrop")));
         panel.Children.Add(CreateSeparator());
 
         var backdrops = new[]
@@ -200,8 +230,8 @@ public static class ActionPanel
             ("acrylic", "Acrylic"),
             ("mica", "Mica"),
             ("mica_alt", "MicaAlt"),
-            ("acrylic_custom", "Acrylic personnalis\u00e9"),
-            ("none", "Aucun")
+            ("acrylic_custom", Lang.T("backdrop_acrylic_custom")),
+            ("none", Lang.T("backdrop_none"))
         };
         foreach (var (key, label) in backdrops)
         {
@@ -217,55 +247,201 @@ public static class ActionPanel
 
         // Storage section
         panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader("Stockage"));
+        panel.Children.Add(CreateHeader(Lang.T("storage")));
         panel.Children.Add(CreateSeparator());
 
-        var isDefault = string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
-        var folderDisplay = isDefault ? "Local (par d\u00e9faut)" : ShortenPath(currentNotesFolder);
+        var isCustomFolder = !string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
 
-        var folderBtn = CreateCheckItem(folderDisplay, false, () =>
+        // Local option
+        var localBtn = CreateCheckItem(Lang.T("local"), !isFirebaseConnected && !isCustomFolder, () =>
+        {
+            if (isCustomFolder) { onResetFolder(); flyout.Hide(); }
+            else if (isFirebaseConnected) { onDisconnectFirebase(); flyout.Hide(); }
+        });
+        localBtn.Tag = Lang.T("local");
+        allButtons.Add(localBtn);
+        panel.Children.Add(localBtn);
+
+        if (isCustomFolder)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = ShortenPath(currentNotesFolder),
+                FontSize = 11,
+                Opacity = 0.45,
+                Margin = new Thickness(12, 0, 12, 4),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+        }
+
+        // Dossier option
+        var folderBtn = CreateCheckItem(Lang.T("custom_folder"), isCustomFolder && !isFirebaseConnected, () =>
         {
             onChangeFolder();
             flyout.Hide();
         });
-        folderBtn.Tag = "Dossier Stockage";
+        folderBtn.Tag = Lang.T("custom_folder");
         allButtons.Add(folderBtn);
         panel.Children.Add(folderBtn);
 
-        if (!isDefault)
+        // Cloud (Firebase) option
+        if (isFirebaseConnected)
         {
-            var resetBtn = new Button
+            var cloudBtn = CreateCheckItem(Lang.T("cloud"), true, () =>
             {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 7, 10, 7),
-                CornerRadius = new CornerRadius(5),
-                Tag = "R\u00e9initialiser stockage"
-            };
-            var resetText = new TextBlock
-            {
-                Text = "R\u00e9initialiser (local)",
-                FontSize = 13,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            resetBtn.Content = resetText;
-            resetBtn.Click += (_, _) =>
-            {
-                onResetFolder();
+                onSyncFirebase();
                 flyout.Hide();
-            };
-            allButtons.Add(resetBtn);
-            panel.Children.Add(resetBtn);
+            });
+            cloudBtn.Tag = Lang.T("cloud");
+            allButtons.Add(cloudBtn);
+            panel.Children.Add(cloudBtn);
+
+            if (!string.IsNullOrEmpty(firebaseEmail))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = firebaseEmail,
+                    FontSize = 11,
+                    Opacity = 0.45,
+                    Margin = new Thickness(12, 0, 12, 4),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            }
+
+            var disconnectBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
+            {
+                onDisconnectFirebase();
+                flyout.Hide();
+            });
+            disconnectBtn.Tag = Lang.T("disconnect") + " Cloud";
+            allButtons.Add(disconnectBtn);
+            panel.Children.Add(disconnectBtn);
+        }
+        else
+        {
+            var connectBtn = CreateCheckItem(Lang.T("cloud"), false, () =>
+            {
+                onConfigureFirebase();
+                flyout.Hide();
+            });
+            connectBtn.Tag = Lang.T("cloud");
+            allButtons.Add(connectBtn);
+            panel.Children.Add(connectBtn);
+        }
+
+        // WebDAV / Nextcloud
+        if (isWebDavConnected)
+        {
+            var webdavBtn = CreateCheckItem("WebDAV", true, () =>
+            {
+                onSyncWebDav();
+                flyout.Hide();
+            });
+            webdavBtn.Tag = "WebDAV Nextcloud";
+            allButtons.Add(webdavBtn);
+            panel.Children.Add(webdavBtn);
+
+            if (!string.IsNullOrEmpty(webDavUrl))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = ShortenPath(webDavUrl),
+                    FontSize = 11,
+                    Opacity = 0.45,
+                    Margin = new Thickness(12, 0, 12, 4),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            }
+
+            var disconnectWdBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
+            {
+                onDisconnectWebDav();
+                flyout.Hide();
+            });
+            disconnectWdBtn.Tag = Lang.T("disconnect") + " WebDAV";
+            allButtons.Add(disconnectWdBtn);
+            panel.Children.Add(disconnectWdBtn);
+        }
+        else
+        {
+            var connectWdBtn = CreateCheckItem("WebDAV", false, () =>
+            {
+                onConfigureWebDav();
+                flyout.Hide();
+            });
+            connectWdBtn.Tag = "WebDAV Nextcloud";
+            allButtons.Add(connectWdBtn);
+            panel.Children.Add(connectWdBtn);
+        }
+
+        // Voice model section
+        if (onShowVoiceModels != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("voice_section")));
+            panel.Children.Add(CreateSeparator());
+            var voiceBtn = CreateCheckItem(Lang.T("voice_model"), false, () => onShowVoiceModels(flyout));
+            voiceBtn.Tag = Lang.T("voice_model") + " TTS STT";
+            allButtons.Add(voiceBtn);
+            panel.Children.Add(voiceBtn);
+        }
+
+        // Shortcuts section
+        if (onShowShortcuts != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("shortcuts_section")));
+            panel.Children.Add(CreateSeparator());
+            var shortcutsBtn = CreateCheckItem(Lang.T("shortcuts_label"), false, () => onShowShortcuts(flyout));
+            shortcutsBtn.Tag = Lang.T("shortcuts_label") + " Raccourcis clavier";
+            allButtons.Add(shortcutsBtn);
+            panel.Children.Add(shortcutsBtn);
+        }
+
+        // Editor section (slash commands toggle)
+        if (onSlashToggled != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("editor_section")));
+            panel.Children.Add(CreateSeparator());
+
+            var slashBtn = CreateCheckItem(Lang.T("slash_commands_toggle"), slashEnabled, () =>
+            {
+                onSlashToggled(!slashEnabled);
+                flyout.Hide();
+            });
+            slashBtn.Tag = Lang.T("slash_commands_toggle");
+            allButtons.Add(slashBtn);
+            panel.Children.Add(slashBtn);
+        }
+
+        // Language section
+        if (onLanguageSelected != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("language_section")));
+            panel.Children.Add(CreateSeparator());
+
+            var langs = new[] { ("en", Lang.T("language_en")), ("fr", Lang.T("language_fr")) };
+            foreach (var (code, label) in langs)
+            {
+                var c = code;
+                var btn = CreateCheckItem(label, code == (currentLanguage ?? "en"), () =>
+                {
+                    onLanguageSelected(c);
+                    flyout.Hide();
+                });
+                btn.Tag = label;
+                allButtons.Add(btn);
+                panel.Children.Add(btn);
+            }
         }
 
         // Search
         panel.Children.Add(CreateSeparator());
         var searchBox = new TextBox
         {
-            PlaceholderText = "Rechercher...",
+            PlaceholderText = Lang.T("search"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -298,20 +474,20 @@ public static class ActionPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 7, 10, 7),
-            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
             Tag = label
         };
 
-        var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var text = new TextBlock
         {
             Text = label,
-            FontSize = 13,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(text, 0);
@@ -322,8 +498,8 @@ public static class ActionPanel
             var check = new FontIcon
             {
                 Glyph = "\uE73E",
-                FontSize = 14,
-                Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                FontSize = 12,
+                Opacity = 0.9,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(check, 1);
@@ -340,9 +516,9 @@ public static class ActionPanel
         return new TextBlock
         {
             Text = text,
-            FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            Margin = new Thickness(10, 6, 10, 6),
+            FontSize = 11,
+            Opacity = 0.6,
+            Margin = new Thickness(8, 4, 8, 3),
             TextTrimming = TextTrimming.CharacterEllipsis
         };
     }
@@ -352,12 +528,14 @@ public static class ActionPanel
         return new Border
         {
             Height = 1,
-            Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"],
-            Margin = new Thickness(8, 2, 8, 2)
+            Opacity = 0.15,
+            Background = new SolidColorBrush(
+                ThemeHelper.IsDark() ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black),
+            Margin = new Thickness(6, 1, 6, 1)
         };
     }
 
-    private static Button CreateButton(ActionItem action, Action handler)
+    internal static Button CreateButton(ActionItem action, Action handler)
     {
         var btn = new Button
         {
@@ -365,19 +543,20 @@ public static class ActionPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 7, 10, 7),
-            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
             Tag = action.Label
         };
 
-        var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var foreground = action.IsDestructive
+        Brush? foreground = action.IsDestructive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99))
-            : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+            : null; // inherit themed default
 
         FrameworkElement iconEl;
         if (action.Icon != null)
@@ -386,37 +565,42 @@ public static class ActionPanel
         }
         else
         {
-            iconEl = new FontIcon { Glyph = action.Glyph ?? "", FontSize = 14, Foreground = foreground };
+            var fi = new FontIcon { Glyph = action.Glyph ?? "", FontSize = 12 };
+            if (foreground != null) fi.Foreground = foreground;
+            iconEl = fi;
         }
         Grid.SetColumn(iconEl, 0);
 
         var text = new TextBlock
         {
             Text = action.Label,
-            FontSize = 13,
-            Foreground = foreground,
+            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
+        if (foreground != null) text.Foreground = foreground;
         Grid.SetColumn(text, 1);
 
         var keysPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 3,
+            Spacing = 2,
             VerticalAlignment = VerticalAlignment.Center
         };
         foreach (var key in action.Keys)
         {
             keysPanel.Children.Add(new Border
             {
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(6, 1, 6, 1),
-                Background = (Brush)Application.Current.Resources["ControlFillColorDefaultBrush"],
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(4, 0, 4, 0),
+                Background = new SolidColorBrush(
+                    ThemeHelper.IsDark()
+                        ? Windows.UI.Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF)
+                        : Windows.UI.Color.FromArgb(0x09, 0x00, 0x00, 0x00)),
                 Child = new TextBlock
                 {
                     Text = key,
-                    FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                    FontSize = 10,
+                    Opacity = 0.6
                 }
             });
         }
@@ -431,11 +615,519 @@ public static class ActionPanel
         return btn;
     }
 
+    public static void ShowVoiceModelsPanel(Flyout flyout, string? currentModelId,
+        XamlRoot xamlRoot,
+        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back button + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = Lang.T("voice_model"),
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        // French models
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("french"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+        foreach (var model in SttModels.Available.Where(m => m.Languages == "Fran\u00e7ais"))
+            panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
+
+        // English models
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("english"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+        foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
+            panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
+
+        flyout.Content = panel;
+    }
+
+    private static UIElement CreateModelItem(SttModelInfo model, string? currentModelId,
+        Flyout parentFlyout, XamlRoot xamlRoot, Action<SttModelInfo> onSelect, Action<SttModelInfo> onDelete, Action onRebuild)
+    {
+        var isCurrent = model.Id == currentModelId;
+        var isDownloaded = model.IsDownloaded;
+        var engine = model.Engine == SttEngine.Vosk ? "Vosk" : "Whisper";
+        var status = isCurrent ? Lang.T("model_active") : isDownloaded ? Lang.T("model_downloaded") : $"{model.SizeMB} MB";
+
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 7, 10, 7),
+            CornerRadius = new CornerRadius(5),
+            Tag = model.Name
+        };
+
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textPanel = new StackPanel { Spacing = 1 };
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = model.Name,
+            FontSize = 13,
+            FontWeight = isCurrent
+                ? Microsoft.UI.Text.FontWeights.SemiBold
+                : Microsoft.UI.Text.FontWeights.Normal,
+        });
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = $"{engine} \u2014 {status}",
+            FontSize = 11,
+            Opacity = isCurrent ? 0.85 : 0.45
+        });
+        Grid.SetColumn(textPanel, 0);
+        grid.Children.Add(textPanel);
+
+        if (isDownloaded)
+        {
+            var check = new FontIcon
+            {
+                Glyph = "\uE73E",
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(check, 1);
+            grid.Children.Add(check);
+        }
+        else
+        {
+            var downloadIcon = new FontIcon
+            {
+                Glyph = "\uE896",
+                FontSize = 12,
+                Opacity = 0.45,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(downloadIcon, 1);
+            grid.Children.Add(downloadIcon);
+        }
+
+        btn.Content = grid;
+
+        if (isDownloaded)
+        {
+            btn.Click += (_, _) =>
+            {
+                onSelect(model);
+                parentFlyout.Hide();
+            };
+
+            // Right-click context menu using ContextFlyout (doesn't close parent flyout)
+            var menuFlyout = new MenuFlyout();
+            var deleteMenuItem = new MenuFlyoutItem
+            {
+                Text = Lang.T("delete"),
+                Icon = new FontIcon { Glyph = "\uE74D" }
+            };
+            deleteMenuItem.Click += (_, _) => onDelete(model);
+            menuFlyout.Items.Add(deleteMenuItem);
+            btn.ContextFlyout = menuFlyout;
+        }
+        else
+        {
+            btn.Click += async (s, _) =>
+            {
+                parentFlyout.Hide();
+                using var cts = new CancellationTokenSource();
+
+                var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar
+                {
+                    Minimum = 0, Maximum = 100, Value = 0
+                };
+                var statusText = new TextBlock
+                {
+                    Text = Lang.T("downloading", model.Name),
+                    FontSize = 12
+                };
+                var sizeText = new TextBlock
+                {
+                    Text = $"{model.SizeMB} MB",
+                    FontSize = 11,
+                    Opacity = 0.45
+                };
+
+                var contentPanel = new StackPanel { Spacing = 8 };
+                contentPanel.Children.Add(statusText);
+                contentPanel.Children.Add(progressBar);
+                contentPanel.Children.Add(sizeText);
+
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = xamlRoot,
+                    Title = Lang.T("download"),
+                    Content = contentPanel,
+                    CloseButtonText = Lang.T("cancel")
+                };
+
+                var progress = new Progress<double>(p =>
+                {
+                    dialog.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (p < 0)
+                        {
+                            progressBar.IsIndeterminate = true;
+                            statusText.Text = "Extraction...";
+                        }
+                        else
+                        {
+                            progressBar.IsIndeterminate = false;
+                            progressBar.Value = p * 100;
+                            statusText.Text = $"T\u00e9l\u00e9chargement... {p * 100:F0}%";
+                        }
+                    });
+                });
+
+                bool success = false;
+                string? errorMsg = null;
+
+                var downloadTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ModelDownloader.DownloadAsync(model, progress, cts.Token);
+                        success = true;
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { errorMsg = ex.Message; }
+                    dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide());
+                });
+
+                await dialog.ShowAsync();
+                if (!success) cts.Cancel();
+                try { await downloadTask; } catch { }
+
+                if (success)
+                {
+                    onSelect(model);
+                }
+                else if (errorMsg != null)
+                {
+                    var errDlg = new ContentDialog
+                    {
+                        XamlRoot = xamlRoot,
+                        Title = Lang.T("error"),
+                        Content = errorMsg,
+                        CloseButtonText = Lang.T("ok")
+                    };
+                    await errDlg.ShowAsync();
+                }
+            };
+        }
+
+        return btn;
+    }
+
     private static string ShortenPath(string path)
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
             return "~" + path[userProfile.Length..];
         return path.Length > 35 ? "..." + path[^32..] : path;
+    }
+
+    internal static Flyout ShowSnippetFlyout(FrameworkElement target, string noteId,
+        SnippetManager snippetManager, string noteContent)
+    {
+        var existing = snippetManager.FindByNoteId(noteId);
+
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(280, 340);
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Header
+        panel.Children.Add(CreateHeader(Lang.T("snippet")));
+        panel.Children.Add(CreateSeparator());
+
+        var form = new StackPanel { Spacing = 12, Padding = new Thickness(8) };
+
+        // Keyword
+        var keywordBox = new TextBox
+        {
+            Header = Lang.T("snippet_keyword"),
+            PlaceholderText = Lang.T("snippet_keyword_placeholder"),
+            FontSize = 13,
+            Text = existing?.Keyword ?? ""
+        };
+        form.Children.Add(keywordBox);
+
+        // Prefix
+        var prefixCombo = new ComboBox
+        {
+            Header = Lang.T("snippet_prefix"),
+            FontSize = 13,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var prefixes = new[] { Lang.T("snippet_none"), ";", "!", "<", "+" };
+        foreach (var p in prefixes)
+            prefixCombo.Items.Add(p);
+
+        // Select current prefix
+        if (existing != null && !string.IsNullOrEmpty(existing.Prefix))
+        {
+            var idx = Array.IndexOf(prefixes, existing.Prefix);
+            prefixCombo.SelectedIndex = idx >= 0 ? idx : 0;
+        }
+        else
+        {
+            prefixCombo.SelectedIndex = 0;
+        }
+        form.Children.Add(prefixCombo);
+
+        // Preview of trigger
+        var previewText = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.45,
+            Margin = new Thickness(0, -4, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        form.Children.Add(previewText);
+
+        void UpdatePreview()
+        {
+            var kw = keywordBox.Text.Trim();
+            if (string.IsNullOrEmpty(kw))
+            {
+                previewText.Text = "";
+                return;
+            }
+            var prefix = prefixCombo.SelectedIndex > 0 ? prefixes[prefixCombo.SelectedIndex] : "";
+            previewText.Text = Lang.T("snippet_preview", prefix + kw);
+        }
+
+        keywordBox.TextChanged += (_, _) => UpdatePreview();
+        prefixCombo.SelectionChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        // Buttons row
+        var buttonsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+
+        var saveBtn = new Button
+        {
+            Content = Lang.T("save"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
+        };
+        saveBtn.Click += (_, _) =>
+        {
+            var kw = keywordBox.Text.Trim();
+            if (string.IsNullOrEmpty(kw)) return;
+            var prefix = prefixCombo.SelectedIndex > 0 ? prefixes[prefixCombo.SelectedIndex] : "";
+
+            // Strip RTF if needed to get plain text for expansion
+            var plainContent = noteContent;
+            if (plainContent.StartsWith("{\\rtf", StringComparison.Ordinal))
+                plainContent = StripRtfToPlain(plainContent);
+
+            snippetManager.AddSnippet(noteId, kw, prefix, plainContent);
+            flyout.Hide();
+        };
+        buttonsPanel.Children.Add(saveBtn);
+
+        if (existing != null)
+        {
+            var removeBtn = new Button { Content = Lang.T("delete") };
+            removeBtn.Click += (_, _) =>
+            {
+                snippetManager.RemoveSnippet(noteId);
+                flyout.Hide();
+            };
+            buttonsPanel.Children.Add(removeBtn);
+        }
+
+        form.Children.Add(buttonsPanel);
+        panel.Children.Add(form);
+
+        flyout.Content = panel;
+        flyout.ShowAt(target);
+        return flyout;
+    }
+
+    private static string StripRtfToPlain(string rtf)
+    {
+        var result = new System.Text.StringBuilder();
+        int depth = 0;
+        int i = 0;
+        while (i < rtf.Length)
+        {
+            char c = rtf[i];
+            if (c == '{') { depth++; i++; continue; }
+            if (c == '}') { depth--; i++; continue; }
+            if (c == '\\')
+            {
+                i++;
+                if (i >= rtf.Length) break;
+                if (rtf[i] == '\'')
+                {
+                    if (i + 2 < rtf.Length &&
+                        byte.TryParse(rtf.AsSpan(i + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out var b))
+                    {
+                        result.Append((char)b);
+                        i += 3;
+                    }
+                    else i++;
+                }
+                else if (rtf[i] == '\n' || rtf[i] == '\r') { i++; }
+                else
+                {
+                    var word = new System.Text.StringBuilder();
+                    while (i < rtf.Length && char.IsLetter(rtf[i])) { word.Append(rtf[i]); i++; }
+                    var w = word.ToString();
+                    if (w == "par" || w == "line") result.Append('\n');
+                    if (w == "tab") result.Append(' ');
+                    if (i < rtf.Length && (rtf[i] == '-' || char.IsDigit(rtf[i])))
+                    {
+                        if (rtf[i] == '-') i++;
+                        while (i < rtf.Length && char.IsDigit(rtf[i])) i++;
+                    }
+                    if (i < rtf.Length && rtf[i] == ' ') i++;
+                }
+                continue;
+            }
+            if (depth <= 1 && (c >= ' ' || c == '\n' || c == '\t'))
+                result.Append(c);
+            i++;
+        }
+        return result.ToString().Trim();
+    }
+
+    internal static void ShowShortcutsPanel(Flyout flyout, List<HotkeyService.ShortcutEntry> shortcuts,
+        Action<List<HotkeyService.ShortcutEntry>> onSave, Action onBack)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = Lang.T("shortcuts_label"),
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        var edited = shortcuts.ToList();
+
+        for (int i = 0; i < edited.Count; i++)
+        {
+            var idx = i;
+            var entry = edited[i];
+
+            var row = new StackPanel { Spacing = 4, Margin = new Thickness(10, 8, 10, 8) };
+
+            var displayLabel = entry.Name switch
+            {
+                "show" => Lang.T("shortcut_show"),
+                "new_note" => Lang.T("shortcut_new_note"),
+                _ => entry.DisplayLabel
+            };
+            row.Children.Add(new TextBlock
+            {
+                Text = displayLabel,
+                FontSize = 12
+            });
+
+            var keyBox = new TextBox
+            {
+                Text = entry.KeyDisplay,
+                IsReadOnly = true,
+                FontSize = 12,
+                Padding = new Thickness(8, 5, 8, 5),
+                PlaceholderText = "Appuyez sur les touches...",
+                TextAlignment = TextAlignment.Center,
+            };
+
+            keyBox.PreviewKeyDown += (_, e) =>
+            {
+                e.Handled = true;
+                var (mods, vk) = HotkeyService.ParseKeyEvent(e.Key);
+                if (vk == 0) // modifier-only, show partial
+                {
+                    keyBox.Text = HotkeyService.FormatShortcut(mods, 0);
+                    if (!string.IsNullOrEmpty(keyBox.Text))
+                        keyBox.Text += " + ...";
+                    return;
+                }
+                keyBox.Text = HotkeyService.FormatShortcut(mods, vk);
+                edited[idx] = entry with { Modifiers = mods, VirtualKey = vk };
+                onSave(edited);
+            };
+
+            row.Children.Add(keyBox);
+            panel.Children.Add(row);
+
+            if (i < edited.Count - 1)
+                panel.Children.Add(CreateSeparator());
+        }
+
+        flyout.Content = panel;
     }
 }

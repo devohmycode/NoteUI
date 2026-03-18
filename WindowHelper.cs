@@ -16,6 +16,8 @@ internal static class WindowHelper
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOZORDER = 0x0004;
 
+    private const int WM_NCCALCSIZE = 0x0083;
+
     public static void RemoveWindowBorder(Window window)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
@@ -25,6 +27,38 @@ internal static class WindowHelper
         SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
     }
+
+    /// <summary>
+    /// Removes the visible non-client frame while keeping WS_THICKFRAME for resize.
+    /// Subclasses the window to zero out the non-client area via WM_NCCALCSIZE.
+    /// </summary>
+    public static void RemoveWindowBorderKeepResize(Window window)
+    {
+        var hwnd = WindowNative.GetWindowHandle(window);
+
+        // Remove caption styles but keep WS_THICKFRAME for resize
+        var style = (long)GetWindowLongPtr(hwnd, GWL_STYLE);
+        style &= ~(WS_BORDER | WS_DLGFRAME);
+        SetWindowLongPtr(hwnd, GWL_STYLE, (IntPtr)style);
+
+        // Subclass to zero out non-client area (removes visible top frame)
+        var subclassProc = new SubclassProc(BorderlessResizeProc);
+        _pinnedDelegates.Add(subclassProc); // prevent GC
+        SetWindowSubclass(hwnd, subclassProc, IntPtr.Zero, IntPtr.Zero);
+
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+    }
+
+    private static IntPtr BorderlessResizeProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
+    {
+        if (uMsg == WM_NCCALCSIZE && wParam != IntPtr.Zero)
+            return IntPtr.Zero; // non-client area = 0 → no visible frame
+        return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+    }
+
+    // prevent delegate from being garbage-collected
+    private static readonly List<SubclassProc> _pinnedDelegates = [];
 
     public static void CenterOnScreen(Window window)
     {
@@ -55,4 +89,12 @@ internal static class WindowHelper
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int X, int Y, int cx, int cy, uint uFlags);
+
+    private delegate IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll")]
+    private static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc pfnSubclass, IntPtr uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 }

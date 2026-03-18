@@ -18,15 +18,14 @@
                   PointerMoved="DragBar_PointerMoved"
                   PointerReleased="DragBar_PointerReleased"/>
 
-            <TextBlock Text="Acrylic personnalis&#233;" FontSize="12"
+            <TextBlock x:Name="AcrylicTitle" FontSize="12"
                        VerticalAlignment="Center" Margin="4,0,0,0"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        IsHitTestVisible="False"/>
 
-            <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                <Button x:Name="AcrylicCloseButton" HorizontalAlignment="Right" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
-                    Padding="8,6" Click="Close_Click"
-                    ToolTipService.ToolTip="Fermer">
+                    Padding="8,6" Click="Close_Click">
                 <FontIcon Glyph="&#xE711;" FontSize="11"/>
             </Button>
         </Grid>
@@ -38,7 +37,7 @@
                 <!-- Tint Opacity -->
                 <StackPanel Spacing="2">
                     <Grid>
-                        <TextBlock Text="Opacit&#233; de teinte" FontSize="12"
+                    <TextBlock x:Name="TintOpacityLabel" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock x:Name="TintOpacityValue" HorizontalAlignment="Right"
                                    FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -51,7 +50,7 @@
                 <!-- Luminosity Opacity -->
                 <StackPanel Spacing="2">
                     <Grid>
-                        <TextBlock Text="Luminosit&#233;" FontSize="12"
+                    <TextBlock x:Name="LuminosityLabel" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock x:Name="LuminosityValue" HorizontalAlignment="Right"
                                    FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -63,7 +62,7 @@
 
                 <!-- Tint Color -->
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Couleur de teinte" FontSize="12"
+                    <TextBlock x:Name="TintColorLabel" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -75,13 +74,14 @@
                         <Border x:Name="TintColorPreview" Grid.Column="1"
                                 Width="32" Height="32" CornerRadius="4"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                Tapped="TintColorPreview_Tapped"/>
                     </Grid>
                 </StackPanel>
 
                 <!-- Fallback Color -->
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Couleur de repli" FontSize="12"
+                    <TextBlock x:Name="FallbackColorLabel" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
@@ -93,13 +93,14 @@
                         <Border x:Name="FallbackColorPreview" Grid.Column="1"
                                 Width="32" Height="32" CornerRadius="4"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"/>
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                Tapped="FallbackColorPreview_Tapped"/>
                     </Grid>
                 </StackPanel>
 
                 <!-- Kind -->
                 <StackPanel Spacing="4">
-                    <TextBlock Text="Style" FontSize="12"
+                    <TextBlock x:Name="StyleLabel" FontSize="12"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Grid ColumnSpacing="6">
                         <Grid.ColumnDefinitions>

@@ -1,0 +1,5 @@
+{
+  "firebaseUrl": "https://your-project-id-default-rtdb.europe-west1.firebasedatabase.app",
+  "firebaseApiKey": "YOUR_FIREBASE_WEB_API_KEY",
+  "googleClientId": "YOUR_GOOGLE_DESKTOP_CLIENT_ID"
+}

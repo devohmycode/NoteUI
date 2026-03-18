@@ -3,6 +3,8 @@
     x:Class="NoteUI.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
+    xmlns:crimson="using:Riverside.Toolkit.Controls"
     Title="Notes">
 
     <Grid x:Name="RootGrid" Background="Transparent">
@@ -11,6 +13,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Row 0: Custom title bar -->
@@ -20,56 +23,76 @@
                   PointerMoved="DragBar_PointerMoved"
                   PointerReleased="DragBar_PointerReleased"/>
 
-            <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+            <Button x:Name="AddButton" HorizontalAlignment="Left" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
-                    Padding="10,6" Click="NewNote_Click"
-                    ToolTipService.ToolTip="Nouvelle note">
+                    Padding="10,6" Click="AddButton_Click"
+                    PointerEntered="AnimatedButton_PointerEntered"
+                    PointerExited="AnimatedButton_PointerExited">
                 <FontIcon Glyph="&#xE710;" FontSize="16"/>
             </Button>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Spacing="0">
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="CompactButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Compact_Click"
-                        ToolTipService.ToolTip="Compacter">
+                        PointerEntered="AnimatedButton_PointerEntered"
+                        PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="CompactIcon" Glyph="&#xE70E;" FontSize="12"/>
                 </Button>
                 <Button x:Name="PinButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Pin_Click"
-                        ToolTipService.ToolTip="&#201;pingler">
+                        PointerEntered="AnimatedButton_PointerEntered"
+                        PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12"/>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="SettingsButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Settings_Click"
-                        ToolTipService.ToolTip="Param&#232;tres">
-                    <FontIcon Glyph="&#xE713;" FontSize="14"/>
+                        PointerEntered="SettingsButton_PointerEntered"
+                        PointerExited="SettingsButton_PointerExited">
+                    <AnimatedIcon x:Name="SettingsAnimatedIcon" Width="16" Height="16">
+                        <AnimatedIcon.Source>
+                            <animatedvisuals:AnimatedSettingsVisualSource/>
+                        </AnimatedIcon.Source>
+                        <AnimatedIcon.FallbackIconSource>
+                            <FontIconSource Glyph="&#xE713;"/>
+                        </AnimatedIcon.FallbackIconSource>
+                    </AnimatedIcon>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="CloseButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Close_Click"
-                        ToolTipService.ToolTip="Fermer">
+                        PointerEntered="AnimatedButton_PointerEntered"
+                        PointerExited="AnimatedButton_PointerExited">
                     <FontIcon Glyph="&#xE711;" FontSize="12"/>
                 </Button>
             </StackPanel>
         </Grid>
 
-        <!-- Row 1: Title -->
-        <TextBlock Grid.Row="1" Text="Notes"
-                   FontSize="22" FontWeight="Bold"
-                   Margin="16,0,16,8"/>
+        <!-- Row 1: Title + accent glow line -->
+        <StackPanel x:Name="TitlePanel" Grid.Row="1" Margin="16,0,16,8" Spacing="4">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon x:Name="BackIcon" Glyph="&#xE72B;" FontSize="16"
+                          VerticalAlignment="Center" Visibility="Collapsed"
+                          Tapped="BackIcon_Tapped"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock x:Name="TitleLabel" Text="Notes"
+                           FontSize="22" FontWeight="Bold"
+                           Tapped="TitleLabel_Tapped"/>
+            </StackPanel>
+            <crimson:GlowLine Width="340" Height="2" HorizontalAlignment="Left"/>
+        </StackPanel>
 
         <!-- Row 2: Search -->
-        <Grid Grid.Row="2" Margin="12,0,12,8">
+        <Grid x:Name="SearchGrid" Grid.Row="2" Margin="12,0,12,8">
             <TextBox x:Name="SearchBox"
-                     PlaceholderText="Rechercher..."
                      TextChanged="SearchBox_TextChanged"
                      CornerRadius="4"
                      Padding="8,6,30,6">
                 <TextBox.Resources>
-                    <SolidColorBrush x:Key="TextControlBackground" Color="#08000000"/>
-                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#0F000000"/>
-                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#0F000000"/>
-                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="#15000000"/>
-                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#20000000"/>
+                    <StaticResource x:Key="TextControlBackground" ResourceKey="SubtleFillColorTransparentBrush"/>
+                    <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="SubtleFillColorSecondaryBrush"/>
+                    <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="SubtleFillColorSecondaryBrush"/>
+                    <StaticResource x:Key="TextControlBorderBrush" ResourceKey="SubtleFillColorTransparentBrush"/>
+                    <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="ControlStrokeColorSecondaryBrush"/>
                 </TextBox.Resources>
             </TextBox>
             <FontIcon Glyph="&#xE721;" FontSize="14"
@@ -79,9 +102,23 @@
         </Grid>
 
         <!-- Row 3: Notes list -->
-        <ScrollViewer Grid.Row="3" Padding="12,0,12,12"
+        <ScrollViewer x:Name="NotesScroll" Grid.Row="3" Padding="12,0,12,12"
                       VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="NotesList" Spacing="8"/>
         </ScrollViewer>
+
+        <!-- Row 4: Status bar -->
+        <Grid Grid.Row="4" Padding="8,2,8,6">
+            <Button x:Name="QuickAccessButton"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Background="Transparent" BorderThickness="0"
+                    Padding="8,5" CornerRadius="6"
+                    Click="QuickAccessButton_Click"
+                    PointerEntered="AnimatedButton_PointerEntered"
+                    PointerExited="AnimatedButton_PointerExited">
+                <FontIcon Glyph="&#xE700;" FontSize="14"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Button>
+        </Grid>
     </Grid>
 </Window>
