@@ -195,7 +195,8 @@ public static class ActionPanel
         Action<Flyout>? onShowVoiceModels = null,
         Action<Flyout>? onShowShortcuts = null,
         string? currentLanguage = null, bool slashEnabled = true,
-        Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null)
+        Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null,
+        Action<Flyout>? onShowAi = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -372,6 +373,18 @@ public static class ActionPanel
             connectWdBtn.Tag = "WebDAV Nextcloud";
             allButtons.Add(connectWdBtn);
             panel.Children.Add(connectWdBtn);
+        }
+
+        // AI section
+        if (onShowAi != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("ai_section")));
+            panel.Children.Add(CreateSeparator());
+            var aiBtn = CreateCheckItem(Lang.T("ai_label"), false, () => onShowAi(flyout));
+            aiBtn.Tag = Lang.T("ai_label") + " IA AI OpenAI Claude Gemini GGUF";
+            allButtons.Add(aiBtn);
+            panel.Children.Add(aiBtn);
         }
 
         // Voice model section
@@ -1129,5 +1142,505 @@ public static class ActionPanel
         }
 
         flyout.Content = panel;
+    }
+
+    // ── AI Panel ──────────────────────────────────────────────
+
+    internal static void ShowAiPanel(Flyout flyout, AiManager aiManager, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = Lang.T("ai_section"),
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        // ── Cloud providers section ──
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("ai_providers"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+
+        foreach (var provider in AiManager.Providers)
+        {
+            var hasKey = aiManager.HasApiKey(provider.Id);
+
+            var providerBlock = new StackPanel { Margin = new Thickness(10, 4, 10, 4), Spacing = 3 };
+
+            // Provider name + status icon on the same line
+            var nameRow = new Grid();
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameText = new TextBlock
+            {
+                Text = provider.Name,
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(nameText, 0);
+
+            var statusIcon = new FontIcon
+            {
+                Glyph = hasKey ? "\uE73E" : "\uE785",
+                FontSize = 12,
+                Foreground = hasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(statusIcon, 1);
+            nameRow.Children.Add(nameText);
+            nameRow.Children.Add(statusIcon);
+            providerBlock.Children.Add(nameRow);
+
+            // Key input + save button
+            var keyRow = new Grid();
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var keyBox = new PasswordBox
+            {
+                PlaceholderText = Lang.T("ai_api_key_placeholder"),
+                Password = aiManager.GetApiKey(provider.Id),
+                FontSize = 11,
+                MaxWidth = 200,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            Grid.SetColumn(keyBox, 0);
+
+            var saveKeyBtn = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE73E", FontSize = 12 },
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(4, 0, 0, 0),
+            };
+            Grid.SetColumn(saveKeyBtn, 1);
+
+            var p = provider;
+            saveKeyBtn.Click += (_, _) =>
+            {
+                aiManager.SetApiKey(p.Id, keyBox.Password);
+                var nowHasKey = aiManager.HasApiKey(p.Id);
+                statusIcon.Glyph = nowHasKey ? "\uE73E" : "\uE785";
+                statusIcon.Foreground = nowHasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+
+                if (nowHasKey)
+                {
+                    ShowAiModelsPanel(flyout, aiManager, p, xamlRoot, () =>
+                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack));
+                }
+            };
+
+            keyRow.Children.Add(keyBox);
+            keyRow.Children.Add(saveKeyBtn);
+            providerBlock.Children.Add(keyRow);
+            panel.Children.Add(providerBlock);
+
+            // If key already exists, add a button to browse models
+            if (hasKey)
+            {
+                var browseBtn = CreateCheckItem($"{provider.Name} — {Lang.T("ai_select_model")}", false, () =>
+                    ShowAiModelsPanel(flyout, aiManager, p, xamlRoot, () =>
+                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack)));
+                browseBtn.Tag = provider.Name + " " + Lang.T("ai_select_model");
+                panel.Children.Add(browseBtn);
+            }
+        }
+
+        panel.Children.Add(CreateSeparator());
+
+        // ── Local models section ──
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("ai_models_local"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+
+        // Installed models
+        var installed = aiManager.GetInstalledModels();
+        if (installed.Count > 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("ai_models_installed"),
+                FontSize = 11,
+                Opacity = 0.45,
+                Margin = new Thickness(10, 4, 0, 2)
+            });
+            foreach (var model in installed)
+            {
+                var isLoaded = model.FileName == aiManager.LoadedModelFileName;
+                var modelBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Background = isLoaded
+                        ? (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"]
+                        : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(10, 5, 10, 5),
+                    CornerRadius = new CornerRadius(5),
+                };
+                var modelGrid = new Grid { ColumnSpacing = 8 };
+                modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var modelName = new TextBlock { Text = model.Name, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(modelName, 0);
+                var modelSize = new TextBlock
+                {
+                    Text = model.Size,
+                    FontSize = 11,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(modelSize, 1);
+                modelGrid.Children.Add(modelName);
+                modelGrid.Children.Add(modelSize);
+                modelBtn.Content = modelGrid;
+
+                var fn = model.FileName;
+                modelBtn.Click += (_, _) =>
+                {
+                    aiManager.Settings.LastLocalModelFileName = fn;
+                    aiManager.SaveSettings();
+                    flyout.Hide();
+                };
+                panel.Children.Add(modelBtn);
+            }
+        }
+
+        // Available predefined models
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("ai_models_available"),
+            FontSize = 11,
+            Opacity = 0.45,
+            Margin = new Thickness(10, 6, 0, 2)
+        });
+        foreach (var model in AiManager.PredefinedModels)
+        {
+            if (model.IsInstalled) continue;
+            var m = model;
+            var btn = CreateCheckItem($"{model.Name}  ({model.Size})", false, async () =>
+            {
+                flyout.Hide();
+                await DownloadLocalModelWithDialog(aiManager, m, xamlRoot);
+            });
+            btn.Tag = model.Name + " GGUF local";
+            panel.Children.Add(btn);
+        }
+
+        panel.Children.Add(CreateSeparator());
+
+        // ── Custom GGUF URL ──
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("ai_custom_gguf"),
+            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 0, 4)
+        });
+
+        var urlBox = new TextBox
+        {
+            PlaceholderText = Lang.T("ai_custom_url"),
+            FontSize = 12,
+            Margin = new Thickness(10, 0, 10, 4),
+        };
+        panel.Children.Add(urlBox);
+
+        var downloadBtn = CreateCheckItem(Lang.T("ai_download"), false, async () =>
+        {
+            var url = urlBox.Text?.Trim();
+            if (string.IsNullOrEmpty(url)) return;
+
+            Uri uri;
+            try { uri = new Uri(url); } catch { return; }
+
+            var fileName = System.IO.Path.GetFileName(uri.LocalPath);
+            if (!fileName.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            flyout.Hide();
+            await DownloadCustomModelWithDialog(aiManager, url, fileName, xamlRoot);
+        });
+        downloadBtn.Tag = Lang.T("ai_download") + " GGUF custom";
+        panel.Children.Add(downloadBtn);
+
+        flyout.Content = panel;
+    }
+
+    // ── AI Models sub-panel (cloud provider models) ──
+
+    private static async void ShowAiModelsPanel(Flyout flyout, AiManager aiManager,
+        ICloudAiProvider provider, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Back + header
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = provider.Name,
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        // Loading indicator
+        var loadingText = new TextBlock
+        {
+            Text = Lang.T("ai_loading_models"),
+            FontSize = 12,
+            Opacity = 0.6,
+            Margin = new Thickness(10, 8, 10, 8)
+        };
+        panel.Children.Add(loadingText);
+        flyout.Content = panel;
+
+        // Fetch models
+        try
+        {
+            var apiKey = aiManager.GetApiKey(provider.Id);
+            var models = await provider.ListModelsAsync(apiKey);
+
+            panel.Children.Remove(loadingText);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("ai_select_model"),
+                Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+                Opacity = 0.6,
+                Margin = new Thickness(10, 4, 0, 4)
+            });
+
+            foreach (var model in models)
+            {
+                var isSelected = model.Id == aiManager.Settings.LastModelId
+                    && provider.Id == aiManager.Settings.LastProviderId;
+                var modelBtn = CreateCheckItem(model.Name, isSelected, () =>
+                {
+                    aiManager.Settings.LastProviderId = provider.Id;
+                    aiManager.Settings.LastModelId = model.Id;
+                    aiManager.SaveSettings();
+                    flyout.Hide();
+                });
+                modelBtn.Tag = model.Name;
+                panel.Children.Add(modelBtn);
+            }
+        }
+        catch
+        {
+            loadingText.Text = Lang.T("ai_error_loading");
+        }
+    }
+
+    // ── Download helpers ──
+
+    private static async Task DownloadLocalModelWithDialog(AiManager aiManager, AiManager.LocalModel model, Microsoft.UI.Xaml.XamlRoot xamlRoot)
+    {
+        using var cts = new CancellationTokenSource();
+        var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar { Minimum = 0, Maximum = 100, Value = 0 };
+        var statusText = new TextBlock { Text = Lang.T("ai_downloading") + $" {model.Name}\u2026", FontSize = 12 };
+        var sizeText = new TextBlock { Text = model.Size, FontSize = 11, Opacity = 0.45 };
+
+        var contentPanel = new StackPanel { Spacing = 8 };
+        contentPanel.Children.Add(statusText);
+        contentPanel.Children.Add(progressBar);
+        contentPanel.Children.Add(sizeText);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = xamlRoot,
+            Title = Lang.T("ai_download"),
+            Content = contentPanel,
+            CloseButtonText = Lang.T("cancel")
+        };
+
+        var progress = new Progress<(long downloaded, long? total)>(p =>
+        {
+            dialog.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (p.total.HasValue && p.total.Value > 0)
+                {
+                    var pct = (double)p.downloaded / p.total.Value * 100;
+                    progressBar.IsIndeterminate = false;
+                    progressBar.Value = pct;
+                    var dlMb = p.downloaded / (1024.0 * 1024.0);
+                    var totalMb = p.total.Value / (1024.0 * 1024.0);
+                    statusText.Text = $"{dlMb:F0}/{totalMb:F0} MB ({pct:F0}%)";
+                }
+                else
+                {
+                    progressBar.IsIndeterminate = true;
+                }
+            });
+        });
+
+        bool success = false;
+        string? errorMsg = null;
+        var downloadTask = Task.Run(async () =>
+        {
+            try
+            {
+                await aiManager.DownloadModelAsync(model, progress, cts.Token);
+                success = true;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { errorMsg = ex.Message; }
+            dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide());
+        });
+
+        await dialog.ShowAsync();
+        if (!success) cts.Cancel();
+        try { await downloadTask; } catch { }
+
+        if (success)
+        {
+            aiManager.Settings.LastLocalModelFileName = model.FileName;
+            aiManager.SaveSettings();
+        }
+        else if (errorMsg != null)
+        {
+            var errDlg = new ContentDialog
+            {
+                XamlRoot = xamlRoot,
+                Title = Lang.T("error"),
+                Content = errorMsg,
+                CloseButtonText = Lang.T("ok")
+            };
+            await errDlg.ShowAsync();
+        }
+    }
+
+    private static async Task DownloadCustomModelWithDialog(AiManager aiManager, string url, string fileName, Microsoft.UI.Xaml.XamlRoot xamlRoot)
+    {
+        using var cts = new CancellationTokenSource();
+        var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar { Minimum = 0, Maximum = 100, Value = 0 };
+        var statusText = new TextBlock { Text = Lang.T("ai_downloading") + $" {fileName}\u2026", FontSize = 12 };
+
+        var contentPanel = new StackPanel { Spacing = 8 };
+        contentPanel.Children.Add(statusText);
+        contentPanel.Children.Add(progressBar);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = xamlRoot,
+            Title = Lang.T("ai_download"),
+            Content = contentPanel,
+            CloseButtonText = Lang.T("cancel")
+        };
+
+        var progress = new Progress<(long downloaded, long? total)>(p =>
+        {
+            dialog.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (p.total.HasValue && p.total.Value > 0)
+                {
+                    var pct = (double)p.downloaded / p.total.Value * 100;
+                    progressBar.IsIndeterminate = false;
+                    progressBar.Value = pct;
+                    var dlMb = p.downloaded / (1024.0 * 1024.0);
+                    var totalMb = p.total.Value / (1024.0 * 1024.0);
+                    statusText.Text = $"{dlMb:F0}/{totalMb:F0} MB ({pct:F0}%)";
+                }
+                else
+                {
+                    progressBar.IsIndeterminate = true;
+                }
+            });
+        });
+
+        bool success = false;
+        string? errorMsg = null;
+        var downloadTask = Task.Run(async () =>
+        {
+            try
+            {
+                await aiManager.DownloadFromUrlAsync(url, fileName, progress, cts.Token);
+                success = true;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { errorMsg = ex.Message; }
+            dialog.DispatcherQueue.TryEnqueue(() => dialog.Hide());
+        });
+
+        await dialog.ShowAsync();
+        if (!success) cts.Cancel();
+        try { await downloadTask; } catch { }
+
+        if (success)
+        {
+            aiManager.Settings.LastLocalModelFileName = fileName;
+            aiManager.SaveSettings();
+        }
+        else if (errorMsg != null)
+        {
+            var errDlg = new ContentDialog
+            {
+                XamlRoot = xamlRoot,
+                Title = Lang.T("error"),
+                Content = errorMsg,
+                CloseButtonText = Lang.T("ok")
+            };
+            await errDlg.ShowAsync();
+        }
     }
 }

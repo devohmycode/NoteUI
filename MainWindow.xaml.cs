@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
     private readonly SnippetManager _snippetManager = new();
     private TextExpansionService? _textExpansion;
 
+    private AiManager? _aiManager;
+
     private enum ViewMode { Notes, Favorites, Tags, TagFilter, Archive }
     private ViewMode _currentView = ViewMode.Notes;
     private string? _currentTagFilter;
@@ -508,7 +510,8 @@ public sealed partial class MainWindow : Window
             {
                 AppSettings.SaveSlashEnabled(enabled);
                 _ = _notes.SyncSettingsToFirebase();
-            });
+            },
+            onShowAi: f => ShowAiInSettings(f));
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
@@ -564,12 +567,21 @@ public sealed partial class MainWindow : Window
                 onBack: () =>
                 {
                     // Re-show main settings
-                    Settings_Click(this, new RoutedEventArgs());
+                    Settings_Click(SettingsButton, new RoutedEventArgs());
                 },
                 onRebuild: RebuildModelsPanel);
         }
 
         RebuildModelsPanel();
+    }
+
+    private void ShowAiInSettings(Flyout flyout)
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+
+        ActionPanel.ShowAiPanel(flyout, _aiManager, Content.XamlRoot,
+            onBack: () => Settings_Click(SettingsButton, new RoutedEventArgs()));
     }
 
     private void ShowShortcutsInSettings(Flyout flyout)

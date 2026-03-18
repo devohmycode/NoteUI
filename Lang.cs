@@ -257,6 +257,27 @@ public static class Lang
             ["download"] = "Download",
             ["language_en"] = "English",
             ["language_fr"] = "French",
+
+            // ── AI ───────────────────────────────────────────────
+            ["ai_section"] = "AI",
+            ["ai_label"] = "AI models",
+            ["ai_providers"] = "Cloud providers",
+            ["ai_api_key_placeholder"] = "API key",
+            ["ai_save_key"] = "Save",
+            ["ai_models_local"] = "Local models",
+            ["ai_models_installed"] = "Installed",
+            ["ai_models_available"] = "Available",
+            ["ai_custom_gguf"] = "Custom model",
+            ["ai_custom_url"] = "Hugging Face URL (.gguf)",
+            ["ai_download"] = "Download",
+            ["ai_downloading"] = "Downloading",
+            ["ai_select_model"] = "Select a model",
+            ["ai_no_key"] = "No API key",
+            ["ai_loading_models"] = "Loading models...",
+            ["ai_key_saved"] = "Key saved",
+            ["ai_key_removed"] = "Key removed",
+            ["ai_error_loading"] = "Error loading models",
+            ["ai_invalid_url"] = "URL must point to a .gguf file",
         },
 
         ["fr"] = new()
@@ -510,6 +531,27 @@ public static class Lang
             ["download"] = "Téléchargement",
             ["language_en"] = "Anglais",
             ["language_fr"] = "Français",
+
+            // ── AI ───────────────────────────────────────────────
+            ["ai_section"] = "IA",
+            ["ai_label"] = "Modèles IA",
+            ["ai_providers"] = "Fournisseurs cloud",
+            ["ai_api_key_placeholder"] = "Clé API",
+            ["ai_save_key"] = "Enregistrer",
+            ["ai_models_local"] = "Modèles locaux",
+            ["ai_models_installed"] = "Installés",
+            ["ai_models_available"] = "Disponibles",
+            ["ai_custom_gguf"] = "Modèle personnalisé",
+            ["ai_custom_url"] = "URL Hugging Face (.gguf)",
+            ["ai_download"] = "Télécharger",
+            ["ai_downloading"] = "Téléchargement",
+            ["ai_select_model"] = "Sélectionner un modèle",
+            ["ai_no_key"] = "Aucune clé API",
+            ["ai_loading_models"] = "Chargement des modèles...",
+            ["ai_key_saved"] = "Clé enregistrée",
+            ["ai_key_removed"] = "Clé supprimée",
+            ["ai_error_loading"] = "Erreur de chargement des modèles",
+            ["ai_invalid_url"] = "L'URL doit pointer vers un fichier .gguf",
         }
     };
 
