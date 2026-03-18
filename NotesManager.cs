@@ -391,6 +391,15 @@ public class NotesManager
         Save();
     }
 
+    public void ToggleArchive(string id)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.IsArchived = !note.IsArchived;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
     public void UpdateNoteTags(string id, List<string> tags)
     {
         var note = _notes.FirstOrDefault(n => n.Id == id);
@@ -443,6 +452,7 @@ public class NoteEntry
     public string Color { get; set; } = "Yellow";
     public bool IsPinned { get; set; }
     public bool IsFavorite { get; set; }
+    public bool IsArchived { get; set; }
     public List<string> Tags { get; set; } = [];
     public DateTime? ReminderAt { get; set; }
     public string NoteType { get; set; } = "note"; // "note" or "tasklist"

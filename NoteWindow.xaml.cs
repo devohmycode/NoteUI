@@ -13,6 +13,7 @@ public sealed partial class NoteWindow : Window
 {
     private readonly NotesManager _notesManager;
     private readonly NoteEntry _note;
+    private SnippetManager? _snippetManager;
     private bool _isPinnedOnTop;
     private bool _suppressTextChanged;
 
@@ -45,8 +46,11 @@ public sealed partial class NoteWindow : Window
 
     public event Action? NoteChanged;
     public event Action? OpenInNotepadRequested;
+    public event Action? ArchiveRequested;
 
     public record ParentRect(int X, int Y, int Width, int Height);
+
+    public void SetSnippetManager(SnippetManager snippetManager) => _snippetManager = snippetManager;
 
     public NoteWindow(NotesManager notesManager, NoteEntry note, ParentRect? parentPosition = null)
     {
@@ -330,6 +334,15 @@ public sealed partial class NoteWindow : Window
                     SaveTaskNoteContent();
                     OpenInNotepadRequested?.Invoke();
                 }));
+                if (_snippetManager != null)
+                {
+                    actions.Add(new ActionPanel.ActionItem("\uE943", Lang.T("snippet"), [], () =>
+                    {
+                        SlashCommands.DeleteSlash(TaskNoteEditor, sp);
+                        SaveTaskNoteContent();
+                        ActionPanel.ShowSnippetFlyout(TaskNoteEditor, _note.Id, _snippetManager, _note.Content);
+                    }));
+                }
                 _slashFlyout = SlashCommands.Show(TaskNoteEditor, actions, () => _slashFlyout = null);
             }
         }
@@ -786,6 +799,15 @@ public sealed partial class NoteWindow : Window
                     SaveCurrentNote();
                     OpenInNotepadRequested?.Invoke();
                 }));
+                if (_snippetManager != null)
+                {
+                    actions.Add(new ActionPanel.ActionItem("\uE943", Lang.T("snippet"), [], () =>
+                    {
+                        SlashCommands.DeleteSlash(NoteEditor, sp);
+                        SaveCurrentNote();
+                        ActionPanel.ShowSnippetFlyout(NoteEditor, _note.Id, _snippetManager, _note.Content);
+                    }));
+                }
                 _slashFlyout = SlashCommands.Show(NoteEditor, actions, () => _slashFlyout = null);
             }
         }
@@ -1060,6 +1082,19 @@ public sealed partial class NoteWindow : Window
             {
                 SaveCurrentNote();
                 OpenInNotepadRequested?.Invoke();
+            }),
+            new("\uE943", Lang.T("snippet"), [], () =>
+            {
+                if (_snippetManager == null) return;
+                SaveCurrentNote();
+                ActionPanel.ShowSnippetFlyout(MenuButton, _note.Id, _snippetManager, _note.Content);
+            }),
+            new("\uE7B8", _note.IsArchived ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
+            {
+                _notesManager.ToggleArchive(_note.Id);
+                NoteChanged?.Invoke();
+                ArchiveRequested?.Invoke();
+                if (_note.IsArchived) this.Close();
             }),
             new("\uE74D", Lang.T("delete_note"), [], () =>
             {

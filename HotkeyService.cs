@@ -75,8 +75,8 @@ internal sealed class HotkeyService : IDisposable
 
     public static List<ShortcutEntry> GetDefaults() =>
     [
-        new("show", "Afficher NotesUI", Modifiers.Ctrl, 0x4E), // Ctrl+N
-        new("new_note", "Cr\u00e9er nouvelle note", Modifiers.Ctrl | Modifiers.Alt, 0x4E), // Ctrl+Alt+N
+        new("show", Lang.T("shortcut_show"), Modifiers.Ctrl | Modifiers.Alt, 0x4E), // Ctrl+Alt+N
+        new("new_note", Lang.T("shortcut_new_note"), Modifiers.Ctrl, 0x4E), // Ctrl+N
     ];
 
     public static List<ShortcutEntry> Load()

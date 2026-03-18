@@ -27,7 +27,10 @@ public sealed partial class MainWindow : Window
 
     private NotepadWindow? _notepadWindow;
 
-    private enum ViewMode { Notes, Favorites, Tags, TagFilter }
+    private readonly SnippetManager _snippetManager = new();
+    private TextExpansionService? _textExpansion;
+
+    private enum ViewMode { Notes, Favorites, Tags, TagFilter, Archive }
     private ViewMode _currentView = ViewMode.Notes;
     private string? _currentTagFilter;
 
@@ -67,6 +70,11 @@ public sealed partial class MainWindow : Window
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
         AppSettings.ApplyThemeToWindow(this, theme);
+        if (Content is FrameworkElement rootFe)
+        {
+            ThemeHelper.Initialize(rootFe);
+            rootFe.ActualThemeChanged += (_, _) => RefreshCurrentView();
+        }
 
         // System tray icon
         _trayIcon = new TrayIcon(this, "Notes");
@@ -88,6 +96,7 @@ public sealed partial class MainWindow : Window
 
         this.Closed += (_, _) =>
         {
+            _textExpansion?.Stop();
             _reminderService?.Dispose();
             ReminderService.Shutdown();
             _acrylicController?.Dispose();
@@ -96,6 +105,9 @@ public sealed partial class MainWindow : Window
         };
 
         _notes.Load();
+        _snippetManager.Load();
+        _textExpansion = new TextExpansionService(_snippetManager);
+        _textExpansion.Start();
         ApplyLocalization();
         RefreshNotesList();
 
@@ -138,7 +150,7 @@ public sealed partial class MainWindow : Window
     private void RefreshNotesList(string? search = null)
     {
         NotesList.Children.Clear();
-        var notes = _notes.GetSorted();
+        var notes = _notes.GetSorted().Where(n => !n.IsArchived).ToList();
 
         if (!string.IsNullOrEmpty(search))
         {
@@ -163,9 +175,14 @@ public sealed partial class MainWindow : Window
         var color = NoteColors.Get(note.Color);
         var hasColor = !NoteColors.IsNone(note.Color);
 
+        var cardColor = hasColor
+            ? ThemeHelper.CardBackgroundWithColor(color)
+            : ThemeHelper.CardBackground;
+        var cardBg = new SolidColorBrush(cardColor);
+
         var outer = new Border
         {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            Background = cardBg,
             CornerRadius = new CornerRadius(8),
         };
 
@@ -195,7 +212,6 @@ public sealed partial class MainWindow : Window
             FontSize = 14,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
             VerticalAlignment = VerticalAlignment.Center,
         };
         Grid.SetColumn(titleText, 0);
@@ -208,7 +224,7 @@ public sealed partial class MainWindow : Window
             {
                 Glyph = "\uE718",
                 FontSize = 10,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Opacity = 0.45,
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
@@ -218,7 +234,7 @@ public sealed partial class MainWindow : Window
             {
                 Text = note.TaskProgress,
                 FontSize = 11,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Opacity = 0.45,
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
@@ -226,7 +242,7 @@ public sealed partial class MainWindow : Window
         {
             Text = note.DateDisplay,
             FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            Opacity = 0.45,
         });
         Grid.SetColumn(metaPanel, 1);
         titleRow.Children.Add(metaPanel);
@@ -245,7 +261,7 @@ public sealed partial class MainWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 FontSize = 12,
                 Margin = new Thickness(0, 2, 0, 0),
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                Opacity = 0.65,
             });
         }
 
@@ -315,6 +331,15 @@ public sealed partial class MainWindow : Window
                     OpenNote(copy.Id);
                 }
             }),
+            new("\uE943", Lang.T("snippet"), [], () =>
+            {
+                ActionPanel.ShowSnippetFlyout(target, noteId, _snippetManager, note?.Content ?? "");
+            }),
+            new("\uE7B8", note?.IsArchived == true ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
+            {
+                _notes.ToggleArchive(noteId);
+                RefreshCurrentView();
+            }),
             new("\uE74D", Lang.T("delete"), [], () =>
             {
                 var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
@@ -347,14 +372,21 @@ public sealed partial class MainWindow : Window
         var sz = AppWindow.Size;
         var parentRect = new NoteWindow.ParentRect(pos.X, pos.Y, sz.Width, sz.Height);
         var window = new NoteWindow(_notes, note, parentRect);
+        window.SetSnippetManager(_snippetManager);
         _openNoteWindows.Add(window);
-        window.NoteChanged += () => RefreshCurrentView();
+        window.NoteChanged += () =>
+        {
+            RefreshCurrentView();
+            // Keep snippet content in sync
+            var n = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+            if (n != null) _snippetManager.UpdateContent(n.Id, n.Content);
+        };
         window.OpenInNotepadRequested += () =>
         {
             var note = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
             if (note == null) return;
             OpenNotepad();
-            _notepadWindow?.LoadNoteContent(note.Title, note.Content);
+            _notepadWindow?.LoadNoteContent(note.Title, note.Content, note.Id);
         };
         window.Closed += (_, _) =>
         {
@@ -382,6 +414,7 @@ public sealed partial class MainWindow : Window
         }
 
         _notepadWindow = new NotepadWindow(_notes);
+        _notepadWindow.SetSnippetManager(_snippetManager);
         _notepadWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
         _notepadWindow.Closed += (_, _) => _notepadWindow = null;
         _notepadWindow.Activate();
@@ -460,6 +493,7 @@ public sealed partial class MainWindow : Window
                 RefreshCurrentView();
             },
             onShowVoiceModels: f => ShowVoiceModelsInSettings(f),
+            onShowShortcuts: f => ShowShortcutsInSettings(f),
             currentLanguage: Lang.Current,
             slashEnabled: AppSettings.LoadSlashEnabled(),
             onLanguageSelected: lang =>
@@ -536,6 +570,20 @@ public sealed partial class MainWindow : Window
         }
 
         RebuildModelsPanel();
+    }
+
+    private void ShowShortcutsInSettings(Flyout flyout)
+    {
+        var shortcuts = HotkeyService.Load();
+        ActionPanel.ShowShortcutsPanel(flyout, shortcuts,
+            onSave: entries =>
+            {
+                HotkeyService.Save(entries);
+            },
+            onBack: () =>
+            {
+                Settings_Click(SettingsButton, new RoutedEventArgs());
+            });
     }
 
     private async Task PickNotesFolder()
@@ -874,6 +922,8 @@ public sealed partial class MainWindow : Window
         {
             new("\uE734", Lang.T("favorites"), [], () => SwitchView(ViewMode.Favorites)),
             new("\uE1CB", Lang.T("tags"), [], () => SwitchView(ViewMode.Tags)),
+            new("\uE7B8", Lang.T("archive"), [], () => SwitchView(ViewMode.Archive)),
+            new("\uE7E8", Lang.T("quit"), [], ExitApplication, IsDestructive: true),
         };
 
         var flyout = ActionPanel.Create(Lang.T("quick_access"), actions);
@@ -937,13 +987,17 @@ public sealed partial class MainWindow : Window
                 TitleLabel.Text = $"#{_currentTagFilter}";
                 ShowNotesForTag(_currentTagFilter!, SearchBox.Text);
                 break;
+            case ViewMode.Archive:
+                TitleLabel.Text = Lang.T("archive");
+                ShowArchived(SearchBox.Text);
+                break;
         }
     }
 
     private void ShowFavorites(string? search = null)
     {
         NotesList.Children.Clear();
-        var favorites = _notes.GetSorted().Where(n => n.IsFavorite).ToList();
+        var favorites = _notes.GetSorted().Where(n => n.IsFavorite && !n.IsArchived).ToList();
 
         if (!string.IsNullOrEmpty(search))
         {
@@ -996,11 +1050,40 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void ShowArchived(string? search = null)
+    {
+        NotesList.Children.Clear();
+        var archived = _notes.GetSorted().Where(n => n.IsArchived).ToList();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            archived = archived.Where(n =>
+                n.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                n.Preview.Contains(search, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+
+        if (archived.Count == 0)
+        {
+            NotesList.Children.Add(CreateEmptyState("\uE7B8", Lang.T("no_archived")));
+            return;
+        }
+
+        var index = 0;
+        foreach (var note in archived)
+        {
+            var card = CreateNoteCard(note);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
+    }
+
     private void ShowNotesForTag(string tag, string? search = null)
     {
         NotesList.Children.Clear();
         var notes = _notes.GetSorted()
-            .Where(n => n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            .Where(n => n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase) && !n.IsArchived)
             .ToList();
 
         if (!string.IsNullOrEmpty(search))
@@ -1031,7 +1114,7 @@ public sealed partial class MainWindow : Window
     {
         var border = new Border
         {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            Background = new SolidColorBrush(ThemeHelper.CardBackground),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16, 12, 16, 12),
         };
@@ -1045,7 +1128,7 @@ public sealed partial class MainWindow : Window
         {
             Glyph = "\uE1CB",
             FontSize = 14,
-            Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+            Opacity = 0.8,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 12, 0)
         };
@@ -1064,7 +1147,7 @@ public sealed partial class MainWindow : Window
         {
             Text = noteCount.ToString(),
             FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            Opacity = 0.45,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(count, 2);
@@ -1099,7 +1182,7 @@ public sealed partial class MainWindow : Window
         {
             Glyph = glyph,
             FontSize = 28,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            Opacity = 0.35,
             HorizontalAlignment = HorizontalAlignment.Center
         });
 
@@ -1107,7 +1190,7 @@ public sealed partial class MainWindow : Window
         {
             Text = message,
             FontSize = 13,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            Opacity = 0.45,
             HorizontalAlignment = HorizontalAlignment.Center
         });
 

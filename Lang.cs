@@ -113,6 +113,8 @@ public static class Lang
             ["voice_model"] = "Voice model",
             ["shortcuts_section"] = "Shortcuts",
             ["shortcuts_label"] = "Shortcuts",
+            ["shortcut_show"] = "Show",
+            ["shortcut_new_note"] = "New note",
             ["editor_section"] = "Editor",
             ["slash_commands_toggle"] = "Slash commands",
             ["enabled"] = "Enabled",
@@ -180,6 +182,15 @@ public static class Lang
             ["char_count_one"] = "1 character",
             ["char_count_many"] = "{0} characters",
 
+            // ── Snippet ───────────────────────────────────────────
+            ["snippet"] = "Snippet",
+            ["snippet_keyword"] = "Keyword",
+            ["snippet_keyword_placeholder"] = "e.g. addr, sig, hello",
+            ["snippet_prefix"] = "Prefix",
+            ["snippet_none"] = "None",
+            ["snippet_preview"] = "Type {0} then Space to expand",
+            ["snippet_saved"] = "Snippet saved",
+
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Select a zone",
             ["ocr_too_small"] = "Selection too small",
@@ -232,10 +243,14 @@ public static class Lang
 
             // ── Views / Quick access ─────────────────────────────
             ["favorites"] = "Favorites",
+            ["archive"] = "Archive",
+            ["unarchive"] = "Unarchive",
+            ["no_archived"] = "No archived notes",
             ["no_favorites"] = "No favorites",
             ["no_tags"] = "No tags",
             ["no_notes_tag"] = "No notes with #{0}",
             ["quick_access"] = "Quick access",
+            ["quit"] = "Quit",
             ["rich_text"] = "Rich text",
             ["connect"] = "Connect",
             ["save_note"] = "Save note",
@@ -350,7 +365,9 @@ public static class Lang
             ["voice_section"] = "Vocal",
             ["voice_model"] = "Modèle vocal",
             ["shortcuts_section"] = "Raccourcis",
-            ["shortcuts_label"] = "Shortcuts",
+            ["shortcuts_label"] = "Raccourcis",
+            ["shortcut_show"] = "Afficher",
+            ["shortcut_new_note"] = "Nouvelle note",
             ["editor_section"] = "Éditeur",
             ["slash_commands_toggle"] = "Commandes slash",
             ["enabled"] = "Activé",
@@ -418,6 +435,15 @@ public static class Lang
             ["char_count_one"] = "1 caractère",
             ["char_count_many"] = "{0} caractères",
 
+            // ── Snippet ───────────────────────────────────────────
+            ["snippet"] = "Snippet",
+            ["snippet_keyword"] = "Mot clé",
+            ["snippet_keyword_placeholder"] = "ex: addr, sig, hello",
+            ["snippet_prefix"] = "Préfixe",
+            ["snippet_none"] = "Aucun",
+            ["snippet_preview"] = "Tapez {0} puis Espace pour insérer",
+            ["snippet_saved"] = "Snippet enregistré",
+
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Sélectionnez une zone",
             ["ocr_too_small"] = "Sélection trop petite",
@@ -470,10 +496,14 @@ public static class Lang
 
             // ── Views / Quick access ─────────────────────────────
             ["favorites"] = "Favoris",
+            ["archive"] = "Archive",
+            ["unarchive"] = "Désarchiver",
+            ["no_archived"] = "Aucune note archivée",
             ["no_favorites"] = "Aucun favori",
             ["no_tags"] = "Aucun tag",
             ["no_notes_tag"] = "Aucune note avec #{0}",
             ["quick_access"] = "Accès rapide",
+            ["quit"] = "Quitter",
             ["rich_text"] = "Texte enrichi",
             ["connect"] = "Connecter",
             ["save_note"] = "Enregistrer la note",

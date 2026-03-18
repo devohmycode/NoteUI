@@ -121,6 +121,12 @@
                         <KeyboardAccelerator Key="F5"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
+                <MenuFlyoutSeparator/>
+                <MenuFlyoutItem x:Name="MenuSnippet" Click="Snippet_Click">
+                    <MenuFlyoutItem.Icon>
+                        <FontIcon Glyph="&#xE943;"/>
+                    </MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
             </MenuBarItem>
 
             <MenuBarItem x:Name="ViewMenu" Title="_">

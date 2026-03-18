@@ -88,11 +88,11 @@
                      CornerRadius="4"
                      Padding="8,6,30,6">
                 <TextBox.Resources>
-                    <SolidColorBrush x:Key="TextControlBackground" Color="#08000000"/>
-                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#0F000000"/>
-                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#0F000000"/>
-                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="#15000000"/>
-                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#20000000"/>
+                    <StaticResource x:Key="TextControlBackground" ResourceKey="SubtleFillColorTransparentBrush"/>
+                    <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="SubtleFillColorSecondaryBrush"/>
+                    <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="SubtleFillColorSecondaryBrush"/>
+                    <StaticResource x:Key="TextControlBorderBrush" ResourceKey="SubtleFillColorTransparentBrush"/>
+                    <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="ControlStrokeColorSecondaryBrush"/>
                 </TextBox.Resources>
             </TextBox>
             <FontIcon Glyph="&#xE721;" FontSize="14"

@@ -15,6 +15,7 @@ namespace NoteUI;
 public sealed partial class NotepadWindow : Window
 {
     private readonly NotesManager _notesManager;
+    private SnippetManager? _snippetManager;
 
     private DesktopAcrylicController? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
@@ -41,6 +42,7 @@ public sealed partial class NotepadWindow : Window
         public string Title { get; set; } = "";
         public string RtfContent { get; set; } = "";
         public string? FilePath { get; set; }
+        public string? NoteId { get; set; }
     }
 
     private readonly List<TabData> _tabs = [];
@@ -48,6 +50,8 @@ public sealed partial class NotepadWindow : Window
     private bool _switchingTab;
 
     public event Action? NoteCreated;
+
+    public void SetSnippetManager(SnippetManager snippetManager) => _snippetManager = snippetManager;
 
     public NotepadWindow(NotesManager notesManager)
     {
@@ -104,10 +108,10 @@ public sealed partial class NotepadWindow : Window
         Editor.Focus(FocusState.Programmatic);
     }
 
-    public void LoadNoteContent(string title, string rtfContent)
+    public void LoadNoteContent(string title, string rtfContent, string? noteId = null)
     {
         SaveCurrentTabContent();
-        var tab = new TabData { Title = title };
+        var tab = new TabData { Title = title, NoteId = noteId };
         _tabs.Add(tab);
         _activeTabId = tab.Id;
         _switchingTab = true;
@@ -142,6 +146,7 @@ public sealed partial class NotepadWindow : Window
         MenuPaste.Text = Lang.T("paste");
         MenuSelectAll.Text = Lang.T("select_all");
         MenuDateTime.Text = Lang.T("datetime_menu");
+        MenuSnippet.Text = Lang.T("snippet");
 
         ViewMenu.Title = Lang.T("view_menu");
         WordWrapItem.Text = Lang.T("word_wrap");
@@ -378,6 +383,15 @@ public sealed partial class NotepadWindow : Window
                     Save_Click(null!, null!);
                     Editor.Focus(FocusState.Programmatic);
                 }));
+                if (_snippetManager != null)
+                {
+                    var sp = slashPos;
+                    actions.Add(new("\uE943", Lang.T("snippet"), [], () =>
+                    {
+                        SlashCommands.DeleteSlash(Editor, sp);
+                        Snippet_Click(null!, null!);
+                    }));
+                }
                 _slashFlyout = SlashCommands.Show(Editor, actions, () => _slashFlyout = null);
             }
         }
@@ -754,6 +768,33 @@ public sealed partial class NotepadWindow : Window
     {
         Editor.Document.Selection.TypeText(DateTime.Now.ToString("HH:mm dd/MM/yyyy"));
         Editor.Focus(FocusState.Programmatic);
+    }
+
+    private void Snippet_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snippetManager == null) return;
+
+        var tab = _tabs.Find(t => t.Id == _activeTabId);
+        if (tab == null) return;
+
+        // If this tab isn't linked to a note, save to notes first
+        if (string.IsNullOrEmpty(tab.NoteId))
+        {
+            Editor.Document.GetText(TextGetOptions.None, out var text);
+            text = text.TrimEnd('\r', '\n');
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            var firstLine = text.Split('\r', '\n')[0].Trim();
+            var title = firstLine.Length > 60 ? firstLine[..60] : firstLine;
+
+            var note = _notesManager.CreateNote();
+            _notesManager.UpdateNote(note.Id, text, title);
+            tab.NoteId = note.Id;
+            NoteCreated?.Invoke();
+        }
+
+        Editor.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
+        ActionPanel.ShowSnippetFlyout(MenuSnippet, tab.NoteId!, _snippetManager, rtf);
     }
 
     // ── Menu: Affichage ──────────────────────────────────────────

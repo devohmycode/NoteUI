@@ -9,18 +9,22 @@ public static class ActionPanel
 {
     public record ActionItem(string? Glyph, string Label, string[] Keys, Action Handler, FrameworkElement? Icon = null, bool IsDestructive = false);
 
-    public static Style CreateFlyoutPresenterStyle(double minWidth = 260, double maxWidth = 320)
+    public static Style CreateFlyoutPresenterStyle(double minWidth = 240, double maxWidth = 300)
     {
         var style = new Style(typeof(FlyoutPresenter));
-        style.Setters.Add(new Setter(FlyoutPresenter.PaddingProperty, new Thickness(4)));
+        style.Setters.Add(new Setter(FlyoutPresenter.PaddingProperty, new Thickness(3)));
         style.Setters.Add(new Setter(FlyoutPresenter.CornerRadiusProperty, new CornerRadius(8)));
         style.Setters.Add(new Setter(FlyoutPresenter.MinWidthProperty, minWidth));
         style.Setters.Add(new Setter(FlyoutPresenter.MaxWidthProperty, maxWidth));
-        style.Setters.Add(new Setter(FlyoutPresenter.BackgroundProperty,
-            (Brush)Application.Current.Resources["AcrylicInAppFillColorDefaultBrush"]));
-        style.Setters.Add(new Setter(FlyoutPresenter.BorderBrushProperty,
-            (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"]));
+        // Background/border: let WinUI resolve the correct themed brushes
+        // via RequestedTheme set below – no manual brush resolution needed.
         style.Setters.Add(new Setter(FlyoutPresenter.BorderThicknessProperty, new Thickness(1)));
+
+        // Force the flyout to match the app theme so all children inherit
+        // the correct themed Foreground / Background automatically.
+        var requestedTheme = ThemeHelper.IsDark() ? ElementTheme.Dark : ElementTheme.Light;
+        style.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, requestedTheme));
+
         return style;
     }
 
@@ -103,12 +107,13 @@ public static class ActionPanel
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 7, 10, 7),
-                CornerRadius = new CornerRadius(5),
-                Tag = display
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
+            Tag = display
             };
 
-            var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -145,8 +150,7 @@ public static class ActionPanel
             var text = new TextBlock
             {
                 Text = display,
-                FontSize = 13,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+                FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(text, 1);
@@ -159,8 +163,8 @@ public static class ActionPanel
                 var check = new FontIcon
                 {
                     Glyph = "\uE73E",
-                    FontSize = 14,
-                    Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                    FontSize = 12,
+                    Opacity = 0.9,
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 Grid.SetColumn(check, 2);
@@ -264,7 +268,7 @@ public static class ActionPanel
             {
                 Text = ShortenPath(currentNotesFolder),
                 FontSize = 11,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Opacity = 0.45,
                 Margin = new Thickness(12, 0, 12, 4),
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
@@ -298,7 +302,7 @@ public static class ActionPanel
                 {
                     Text = firebaseEmail,
                     FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                    Opacity = 0.45,
                     Margin = new Thickness(12, 0, 12, 4),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
@@ -343,7 +347,7 @@ public static class ActionPanel
                 {
                     Text = ShortenPath(webDavUrl),
                     FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                    Opacity = 0.45,
                     Margin = new Thickness(12, 0, 12, 4),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
@@ -401,16 +405,14 @@ public static class ActionPanel
             panel.Children.Add(CreateHeader(Lang.T("editor_section")));
             panel.Children.Add(CreateSeparator());
 
-            var slashToggle = new ToggleSwitch
+            var slashBtn = CreateCheckItem(Lang.T("slash_commands_toggle"), slashEnabled, () =>
             {
-                IsOn = slashEnabled,
-                Header = Lang.T("slash_commands_toggle"),
-                OnContent = Lang.T("enabled"),
-                OffContent = Lang.T("disabled"),
-                Margin = new Thickness(10, 4, 10, 4),
-            };
-            slashToggle.Toggled += (_, _) => onSlashToggled(slashToggle.IsOn);
-            panel.Children.Add(slashToggle);
+                onSlashToggled(!slashEnabled);
+                flyout.Hide();
+            });
+            slashBtn.Tag = Lang.T("slash_commands_toggle");
+            allButtons.Add(slashBtn);
+            panel.Children.Add(slashBtn);
         }
 
         // Language section
@@ -472,20 +474,20 @@ public static class ActionPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 7, 10, 7),
-            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
             Tag = label
         };
 
-        var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var text = new TextBlock
         {
             Text = label,
-            FontSize = 13,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(text, 0);
@@ -496,8 +498,8 @@ public static class ActionPanel
             var check = new FontIcon
             {
                 Glyph = "\uE73E",
-                FontSize = 14,
-                Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                FontSize = 12,
+                Opacity = 0.9,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(check, 1);
@@ -514,9 +516,9 @@ public static class ActionPanel
         return new TextBlock
         {
             Text = text,
-            FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            Margin = new Thickness(10, 6, 10, 6),
+            FontSize = 11,
+            Opacity = 0.6,
+            Margin = new Thickness(8, 4, 8, 3),
             TextTrimming = TextTrimming.CharacterEllipsis
         };
     }
@@ -526,8 +528,10 @@ public static class ActionPanel
         return new Border
         {
             Height = 1,
-            Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"],
-            Margin = new Thickness(8, 2, 8, 2)
+            Opacity = 0.15,
+            Background = new SolidColorBrush(
+                ThemeHelper.IsDark() ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black),
+            Margin = new Thickness(6, 1, 6, 1)
         };
     }
 
@@ -539,19 +543,20 @@ public static class ActionPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 7, 10, 7),
-            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
             Tag = action.Label
         };
 
-        var grid = new Grid { ColumnSpacing = 10 };
+        var grid = new Grid { ColumnSpacing = 8 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var foreground = action.IsDestructive
+        Brush? foreground = action.IsDestructive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99))
-            : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+            : null; // inherit themed default
 
         FrameworkElement iconEl;
         if (action.Icon != null)
@@ -560,37 +565,42 @@ public static class ActionPanel
         }
         else
         {
-            iconEl = new FontIcon { Glyph = action.Glyph ?? "", FontSize = 14, Foreground = foreground };
+            var fi = new FontIcon { Glyph = action.Glyph ?? "", FontSize = 12 };
+            if (foreground != null) fi.Foreground = foreground;
+            iconEl = fi;
         }
         Grid.SetColumn(iconEl, 0);
 
         var text = new TextBlock
         {
             Text = action.Label,
-            FontSize = 13,
-            Foreground = foreground,
+            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
+        if (foreground != null) text.Foreground = foreground;
         Grid.SetColumn(text, 1);
 
         var keysPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 3,
+            Spacing = 2,
             VerticalAlignment = VerticalAlignment.Center
         };
         foreach (var key in action.Keys)
         {
             keysPanel.Children.Add(new Border
             {
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(6, 1, 6, 1),
-                Background = (Brush)Application.Current.Resources["ControlFillColorDefaultBrush"],
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(4, 0, 4, 0),
+                Background = new SolidColorBrush(
+                    ThemeHelper.IsDark()
+                        ? Windows.UI.Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF)
+                        : Windows.UI.Color.FromArgb(0x09, 0x00, 0x00, 0x00)),
                 Child = new TextBlock
                 {
                     Text = key,
-                    FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                    FontSize = 10,
+                    Opacity = 0.6
                 }
             });
         }
@@ -631,7 +641,7 @@ public static class ActionPanel
         {
             Text = Lang.T("voice_model"),
             FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Opacity = 0.6,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0, 0, 0)
         };
@@ -647,7 +657,7 @@ public static class ActionPanel
         {
             Text = Lang.T("french"),
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Opacity = 0.6,
             Margin = new Thickness(10, 8, 0, 4)
         });
         foreach (var model in SttModels.Available.Where(m => m.Languages == "Fran\u00e7ais"))
@@ -658,7 +668,7 @@ public static class ActionPanel
         {
             Text = Lang.T("english"),
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Opacity = 0.6,
             Margin = new Thickness(10, 8, 0, 4)
         });
         foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
@@ -698,15 +708,12 @@ public static class ActionPanel
             FontWeight = isCurrent
                 ? Microsoft.UI.Text.FontWeights.SemiBold
                 : Microsoft.UI.Text.FontWeights.Normal,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
         });
         textPanel.Children.Add(new TextBlock
         {
             Text = $"{engine} \u2014 {status}",
             FontSize = 11,
-            Foreground = isCurrent
-                ? (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"]
-                : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"]
+            Opacity = isCurrent ? 0.85 : 0.45
         });
         Grid.SetColumn(textPanel, 0);
         grid.Children.Add(textPanel);
@@ -717,7 +724,7 @@ public static class ActionPanel
             {
                 Glyph = "\uE73E",
                 FontSize = 14,
-                Foreground = (Brush)Application.Current.Resources["SystemFillColorSuccessBrush"],
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95)),
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(check, 1);
@@ -729,7 +736,7 @@ public static class ActionPanel
             {
                 Glyph = "\uE896",
                 FontSize = 12,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Opacity = 0.45,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(downloadIcon, 1);
@@ -777,7 +784,7 @@ public static class ActionPanel
                 {
                     Text = $"{model.SizeMB} MB",
                     FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"]
+                    Opacity = 0.45
                 };
 
                 var contentPanel = new StackPanel { Spacing = 8 };
@@ -859,6 +866,178 @@ public static class ActionPanel
         return path.Length > 35 ? "..." + path[^32..] : path;
     }
 
+    internal static Flyout ShowSnippetFlyout(FrameworkElement target, string noteId,
+        SnippetManager snippetManager, string noteContent)
+    {
+        var existing = snippetManager.FindByNoteId(noteId);
+
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(280, 340);
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        // Header
+        panel.Children.Add(CreateHeader(Lang.T("snippet")));
+        panel.Children.Add(CreateSeparator());
+
+        var form = new StackPanel { Spacing = 12, Padding = new Thickness(8) };
+
+        // Keyword
+        var keywordBox = new TextBox
+        {
+            Header = Lang.T("snippet_keyword"),
+            PlaceholderText = Lang.T("snippet_keyword_placeholder"),
+            FontSize = 13,
+            Text = existing?.Keyword ?? ""
+        };
+        form.Children.Add(keywordBox);
+
+        // Prefix
+        var prefixCombo = new ComboBox
+        {
+            Header = Lang.T("snippet_prefix"),
+            FontSize = 13,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var prefixes = new[] { Lang.T("snippet_none"), ";", "!", "<", "+" };
+        foreach (var p in prefixes)
+            prefixCombo.Items.Add(p);
+
+        // Select current prefix
+        if (existing != null && !string.IsNullOrEmpty(existing.Prefix))
+        {
+            var idx = Array.IndexOf(prefixes, existing.Prefix);
+            prefixCombo.SelectedIndex = idx >= 0 ? idx : 0;
+        }
+        else
+        {
+            prefixCombo.SelectedIndex = 0;
+        }
+        form.Children.Add(prefixCombo);
+
+        // Preview of trigger
+        var previewText = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.45,
+            Margin = new Thickness(0, -4, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        form.Children.Add(previewText);
+
+        void UpdatePreview()
+        {
+            var kw = keywordBox.Text.Trim();
+            if (string.IsNullOrEmpty(kw))
+            {
+                previewText.Text = "";
+                return;
+            }
+            var prefix = prefixCombo.SelectedIndex > 0 ? prefixes[prefixCombo.SelectedIndex] : "";
+            previewText.Text = Lang.T("snippet_preview", prefix + kw);
+        }
+
+        keywordBox.TextChanged += (_, _) => UpdatePreview();
+        prefixCombo.SelectionChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        // Buttons row
+        var buttonsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+
+        var saveBtn = new Button
+        {
+            Content = Lang.T("save"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
+        };
+        saveBtn.Click += (_, _) =>
+        {
+            var kw = keywordBox.Text.Trim();
+            if (string.IsNullOrEmpty(kw)) return;
+            var prefix = prefixCombo.SelectedIndex > 0 ? prefixes[prefixCombo.SelectedIndex] : "";
+
+            // Strip RTF if needed to get plain text for expansion
+            var plainContent = noteContent;
+            if (plainContent.StartsWith("{\\rtf", StringComparison.Ordinal))
+                plainContent = StripRtfToPlain(plainContent);
+
+            snippetManager.AddSnippet(noteId, kw, prefix, plainContent);
+            flyout.Hide();
+        };
+        buttonsPanel.Children.Add(saveBtn);
+
+        if (existing != null)
+        {
+            var removeBtn = new Button { Content = Lang.T("delete") };
+            removeBtn.Click += (_, _) =>
+            {
+                snippetManager.RemoveSnippet(noteId);
+                flyout.Hide();
+            };
+            buttonsPanel.Children.Add(removeBtn);
+        }
+
+        form.Children.Add(buttonsPanel);
+        panel.Children.Add(form);
+
+        flyout.Content = panel;
+        flyout.ShowAt(target);
+        return flyout;
+    }
+
+    private static string StripRtfToPlain(string rtf)
+    {
+        var result = new System.Text.StringBuilder();
+        int depth = 0;
+        int i = 0;
+        while (i < rtf.Length)
+        {
+            char c = rtf[i];
+            if (c == '{') { depth++; i++; continue; }
+            if (c == '}') { depth--; i++; continue; }
+            if (c == '\\')
+            {
+                i++;
+                if (i >= rtf.Length) break;
+                if (rtf[i] == '\'')
+                {
+                    if (i + 2 < rtf.Length &&
+                        byte.TryParse(rtf.AsSpan(i + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out var b))
+                    {
+                        result.Append((char)b);
+                        i += 3;
+                    }
+                    else i++;
+                }
+                else if (rtf[i] == '\n' || rtf[i] == '\r') { i++; }
+                else
+                {
+                    var word = new System.Text.StringBuilder();
+                    while (i < rtf.Length && char.IsLetter(rtf[i])) { word.Append(rtf[i]); i++; }
+                    var w = word.ToString();
+                    if (w == "par" || w == "line") result.Append('\n');
+                    if (w == "tab") result.Append(' ');
+                    if (i < rtf.Length && (rtf[i] == '-' || char.IsDigit(rtf[i])))
+                    {
+                        if (rtf[i] == '-') i++;
+                        while (i < rtf.Length && char.IsDigit(rtf[i])) i++;
+                    }
+                    if (i < rtf.Length && rtf[i] == ' ') i++;
+                }
+                continue;
+            }
+            if (depth <= 1 && (c >= ' ' || c == '\n' || c == '\t'))
+                result.Append(c);
+            i++;
+        }
+        return result.ToString().Trim();
+    }
+
     internal static void ShowShortcutsPanel(Flyout flyout, List<HotkeyService.ShortcutEntry> shortcuts,
         Action<List<HotkeyService.ShortcutEntry>> onSave, Action onBack)
     {
@@ -884,7 +1063,7 @@ public static class ActionPanel
         {
             Text = Lang.T("shortcuts_label"),
             FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Opacity = 0.6,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0, 0, 0)
         };
@@ -904,11 +1083,16 @@ public static class ActionPanel
 
             var row = new StackPanel { Spacing = 4, Margin = new Thickness(10, 8, 10, 8) };
 
+            var displayLabel = entry.Name switch
+            {
+                "show" => Lang.T("shortcut_show"),
+                "new_note" => Lang.T("shortcut_new_note"),
+                _ => entry.DisplayLabel
+            };
             row.Children.Add(new TextBlock
             {
-                Text = entry.DisplayLabel,
-                FontSize = 12,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
+                Text = displayLabel,
+                FontSize = 12
             });
 
             var keyBox = new TextBox
