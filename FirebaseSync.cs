@@ -32,7 +32,7 @@ public class FirebaseSync : IDisposable
 
     public async Task<(bool Success, string? Error)> SignUpAsync(string email, string password)
     {
-        if (!IsConfigured) return (false, "Non configur\u00e9");
+        if (!IsConfigured) return (false, Lang.T("firebase_not_configured"));
         try
         {
             var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={_apiKey}";
@@ -52,7 +52,7 @@ public class FirebaseSync : IDisposable
 
     public async Task<(bool Success, string? Error)> SignInAsync(string email, string password)
     {
-        if (!IsConfigured) return (false, "Non configur\u00e9");
+        if (!IsConfigured) return (false, Lang.T("firebase_not_configured"));
         try
         {
             var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={_apiKey}";
@@ -143,19 +143,19 @@ public class FirebaseSync : IDisposable
     {
         try
         {
-            var msg = json.GetProperty("error").GetProperty("message").GetString() ?? "Erreur";
+            var msg = json.GetProperty("error").GetProperty("message").GetString() ?? Lang.T("error");
             return msg switch
             {
-                "EMAIL_EXISTS" => "Ce compte existe d\u00e9j\u00e0",
-                "EMAIL_NOT_FOUND" => "Compte introuvable",
-                "INVALID_PASSWORD" => "Mot de passe incorrect",
-                var s when s.StartsWith("WEAK_PASSWORD") => "Mot de passe trop faible (6 caract\u00e8res min.)",
-                "INVALID_EMAIL" => "Email invalide",
-                "INVALID_LOGIN_CREDENTIALS" => "Email ou mot de passe incorrect",
+                "EMAIL_EXISTS" => Lang.T("firebase_email_exists"),
+                "EMAIL_NOT_FOUND" => Lang.T("firebase_email_not_found"),
+                "INVALID_PASSWORD" => Lang.T("firebase_invalid_password"),
+                var s when s.StartsWith("WEAK_PASSWORD") => Lang.T("firebase_weak_password"),
+                "INVALID_EMAIL" => Lang.T("firebase_invalid_email"),
+                "INVALID_LOGIN_CREDENTIALS" => Lang.T("firebase_invalid_credentials"),
                 _ => msg
             };
         }
-        catch { return "Erreur inconnue"; }
+        catch { return Lang.T("firebase_unknown_error"); }
     }
 
     // ── Google Sign-In ─────────────────────────────────────────
@@ -164,9 +164,9 @@ public class FirebaseSync : IDisposable
 
     public async Task<(bool Success, string? Error)> SignInWithGoogleAsync()
     {
-        if (!IsConfigured) return (false, "Non configur\u00e9");
+        if (!IsConfigured) return (false, Lang.T("firebase_not_configured"));
         if (!RuntimeSecrets.TryGetGoogleClientId(out var googleClientId))
-            return (false, "Google OAuth non configur\u00e9 (NOTEUI_GOOGLE_CLIENT_ID).");
+            return (false, Lang.T("firebase_google_not_configured"));
         try
         {
             // Generate PKCE code verifier + challenge
@@ -321,6 +321,38 @@ public class FirebaseSync : IDisposable
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
+    }
+
+    // ── Settings Sync ─────────────────────────────────────────
+
+    public async Task<bool> PushSettingsAsync(Dictionary<string, object> settings)
+    {
+        if (!IsConnected || _localId == null) return false;
+        try
+        {
+            var url = $"{_databaseUrl}/users/{_localId}/settings.json?auth={_idToken}";
+            var json = JsonSerializer.Serialize(settings);
+            var response = await _http.PutAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    public async Task<Dictionary<string, JsonElement>?> PullSettingsAsync()
+    {
+        if (!IsConnected || _localId == null) return null;
+        try
+        {
+            var url = $"{_databaseUrl}/users/{_localId}/settings.json?auth={_idToken}";
+            var response = await _http.GetAsync(url);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var content = await response.Content.ReadAsStringAsync();
+            if (string.IsNullOrEmpty(content) || content == "null") return null;
+
+            return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(content);
+        }
+        catch { return null; }
     }
 
     public void Dispose()

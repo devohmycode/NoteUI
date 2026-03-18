@@ -44,6 +44,7 @@ public sealed partial class NoteWindow : Window
     public string NoteId => _note.Id;
 
     public event Action? NoteChanged;
+    public event Action? OpenInNotepadRequested;
 
     public record ParentRect(int X, int Y, int Width, int Height);
 
@@ -79,7 +80,17 @@ public sealed partial class NoteWindow : Window
         if (parentPosition != null)
         {
             var rng = new Random();
-            var x = parentPosition.X + parentPosition.Width + 4;
+            var display = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+            var workArea = display.WorkArea;
+            const int noteWidth = 400;
+            const int gap = 4;
+
+            int x;
+            if (parentPosition.X + parentPosition.Width + gap + noteWidth <= workArea.X + workArea.Width)
+                x = parentPosition.X + parentPosition.Width + gap;
+            else
+                x = parentPosition.X - noteWidth - gap;
+
             var y = parentPosition.Y + rng.Next(0, 60);
             AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
         }
@@ -94,6 +105,7 @@ public sealed partial class NoteWindow : Window
         ApplyNoteColor(note.Color);
         TitleText.Text = note.Title;
         UpdateMenuIcon();
+        ApplyNoteLocalization();
 
         if (note.NoteType == "tasklist")
         {
@@ -115,6 +127,18 @@ public sealed partial class NoteWindow : Window
             _animTimer = null;
             _acrylicController?.Dispose();
         };
+    }
+
+    private void ApplyNoteLocalization()
+    {
+        ToolTipService.SetToolTip(MenuButton, Lang.T("tip_menu"));
+        ToolTipService.SetToolTip(CompactButton, Lang.T("tip_compact"));
+        ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
+        ToolTipService.SetToolTip(NoteCloseButton, Lang.T("tip_close"));
+        ToolTipService.SetToolTip(FormatButton, Lang.T("tip_format"));
+        ToolTipService.SetToolTip(VoiceButton, Lang.T("tip_voice"));
+        ToolTipService.SetToolTip(ColorButton, Lang.T("tip_color"));
+        TaskNoteEditor.PlaceholderText = Lang.T("notes_placeholder");
     }
 
     public void ApplyBackdrop(BackdropSettings settings)
@@ -273,104 +297,99 @@ public sealed partial class NoteWindow : Window
         SaveTaskNoteContent();
         AutoResizeWindow();
 
-        if (_slashFlyout == null)
+        if (_slashFlyout == null && AppSettings.LoadSlashEnabled())
         {
             var slashPos = SlashCommands.DetectSlash(TaskNoteEditor);
             if (slashPos >= 0)
             {
                 var actions = SlashCommands.RichEditActions(TaskNoteEditor, slashPos);
                 var sp = slashPos;
-                actions.Add(new ActionPanel.ActionItem("\uE720", "Audio", [], () =>
+                actions.Add(new ActionPanel.ActionItem("\uE720", Lang.T("audio"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     StartVoiceRecording();
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE71B", "Lien", [], () =>
+                actions.Add(new ActionPanel.ActionItem("\uE71B", Lang.T("link"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
-                    ShowTaskNoteLinkFlyout();
+                    DispatcherQueue.TryEnqueue(() => ShowTaskNoteLinkFlyout());
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE722", Lang.T("capture"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(TaskNoteEditor, sp);
+                    StartScreenCapture(TaskNoteEditor);
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE8F4", Lang.T("extract_text"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(TaskNoteEditor, sp);
+                    StartOcrCapture(TaskNoteEditor);
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE70F", Lang.T("text_editor"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(TaskNoteEditor, sp);
+                    SaveTaskNoteContent();
+                    OpenInNotepadRequested?.Invoke();
                 }));
                 _slashFlyout = SlashCommands.Show(TaskNoteEditor, actions, () => _slashFlyout = null);
             }
         }
     }
 
-    private void ShowTaskNoteLinkFlyout()
+    private async void ShowTaskNoteLinkFlyout()
     {
         var sel = TaskNoteEditor.Document.Selection;
         sel.GetText(Microsoft.UI.Text.TextGetOptions.None, out var selectedText);
         selectedText = selectedText.TrimEnd('\r', '\n');
 
-        var flyout = new Flyout();
-        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(300, 360);
-
-        var panel = new StackPanel { Spacing = 8, Padding = new Thickness(8) };
-        panel.Children.Add(ActionPanel.CreateHeader("Lien"));
-
         var displayBox = new TextBox
         {
-            PlaceholderText = "Texte du lien (facultatif)",
-            Header = "Texte d'affichage",
+            PlaceholderText = Lang.T("link_text_optional"),
+            Header = Lang.T("display_text"),
             FontSize = 13,
             Text = selectedText ?? ""
         };
-        panel.Children.Add(displayBox);
 
         var urlBox = new TextBox
         {
-            PlaceholderText = "Lien vers une page web existante",
-            Header = "Adresse",
+            PlaceholderText = Lang.T("link_to_webpage"),
+            Header = Lang.T("address"),
             FontSize = 13
         };
+
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(displayBox);
         panel.Children.Add(urlBox);
 
-        var buttonsPanel = new StackPanel
+        var dialog = new ContentDialog
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 4, 0, 0)
+            Title = Lang.T("link"),
+            Content = panel,
+            PrimaryButtonText = Lang.T("insert"),
+            CloseButtonText = Lang.T("cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot
         };
 
-        var insertBtn = new Button
-        {
-            Content = "Ins\u00e9rer",
-            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
-        };
-        insertBtn.Click += (_, _) =>
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
         {
             var url = urlBox.Text.Trim();
-            if (string.IsNullOrEmpty(url)) return;
-
-            var display = displayBox.Text.Trim();
-            var docSel = TaskNoteEditor.Document.Selection;
-
-            if (!string.IsNullOrEmpty(display) && string.IsNullOrEmpty(selectedText))
+            if (!string.IsNullOrEmpty(url))
             {
-                docSel.TypeText(display);
-                docSel.SetRange(docSel.EndPosition - display.Length, docSel.EndPosition);
+                var display = displayBox.Text.Trim();
+                var docSel = TaskNoteEditor.Document.Selection;
+
+                if (!string.IsNullOrEmpty(display) && string.IsNullOrEmpty(selectedText))
+                {
+                    docSel.TypeText(display);
+                    docSel.SetRange(docSel.EndPosition - display.Length, docSel.EndPosition);
+                }
+
+                docSel.Link = "\"" + url + "\"";
+                docSel.CharacterFormat.ForegroundColor = Windows.UI.Color.FromArgb(255, 96, 180, 255);
             }
-
-            docSel.Link = "\"" + url + "\"";
-            docSel.CharacterFormat.ForegroundColor = Windows.UI.Color.FromArgb(255, 96, 180, 255);
-
-            flyout.Hide();
-            TaskNoteEditor.Focus(FocusState.Programmatic);
-        };
-
-        var cancelBtn = new Button { Content = "Annuler" };
-        cancelBtn.Click += (_, _) =>
-        {
-            flyout.Hide();
-            TaskNoteEditor.Focus(FocusState.Programmatic);
-        };
-
-        buttonsPanel.Children.Add(insertBtn);
-        buttonsPanel.Children.Add(cancelBtn);
-        panel.Children.Add(buttonsPanel);
-
-        flyout.Content = panel;
-        flyout.ShowAt(TaskNoteEditor);
+        }
+        TaskNoteEditor.Focus(FocusState.Programmatic);
     }
 
     // ── Task list ────────────────────────────────────────────────
@@ -393,7 +412,11 @@ public sealed partial class NoteWindow : Window
         var tertiaryBrush = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
         var disabledBrush = (Brush)Application.Current.Resources["TextFillColorDisabledBrush"];
 
-        var grid = new Grid { Padding = new Thickness(4, 2, 4, 2) };
+        var grid = new Grid
+        {
+            Padding = new Thickness(4, 2, 4, 2),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent)
+        };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -484,7 +507,7 @@ public sealed partial class NoteWindow : Window
             task.Text = textBox.Text;
             SaveTasks();
 
-            if (!_suppressTaskChanges && _slashFlyout == null)
+            if (!_suppressTaskChanges && _slashFlyout == null && AppSettings.LoadSlashEnabled())
             {
                 var sp = SlashCommands.DetectSlash(textBox);
                 if (sp >= 0)
@@ -540,7 +563,7 @@ public sealed partial class NoteWindow : Window
         };
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         content.Children.Add(new FontIcon { Glyph = "\uE710", FontSize = 12, Foreground = tertiaryBrush });
-        content.Children.Add(new TextBlock { Text = "Ajouter une t\u00e2che", FontSize = 13, Foreground = tertiaryBrush });
+    content.Children.Add(new TextBlock { Text = Lang.T("add_task"), FontSize = 13, Foreground = tertiaryBrush });
         btn.Content = content;
         btn.Click += (_, _) => AddNewTask(null);
         return btn;
@@ -583,25 +606,42 @@ public sealed partial class NoteWindow : Window
     private void RemoveTask(Grid row)
     {
         var task = row.Tag as TaskItem;
+        if (task == null || !TaskListPanel.Children.Contains(row)) return;
+
         var index = TaskListPanel.Children.IndexOf(row);
 
-        _note.Tasks.Remove(task!);
+        _note.Tasks.Remove(task);
         TaskListPanel.Children.Remove(row);
 
-        // If all tasks removed, add an empty one
+        SaveTasks();
+
+        // If all tasks removed, convert back to regular note
         if (_note.Tasks.Count == 0)
         {
-            var newTask = new TaskItem();
-            _note.Tasks.Add(newTask);
-            var newRow = CreateTaskRow(newTask);
-            TaskListPanel.Children.Insert(0, newRow);
-            SaveTasks();
-            if (newRow is Grid ng && ng.Children.Count > 1 && ng.Children[1] is TextBox ntb)
-                ntb.Focus(FocusState.Programmatic);
+            // Preserve any task note content
+            TaskNoteEditor.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
+            TaskNoteEditor.Document.GetText(TextGetOptions.None, out var plain);
+            var hasContent = !string.IsNullOrWhiteSpace(plain?.TrimEnd('\r', '\n'));
+
+            _note.NoteType = "note";
+            _note.Content = hasContent ? rtf : "";
+            _notesManager.UpdateNote(_note.Id, _note.Content, _note.Title, _note.Color);
+
+            TaskListScroll.Visibility = Visibility.Collapsed;
+            NoteEditor.Visibility = Visibility.Visible;
+            FormatButton.Visibility = Visibility.Visible;
+
+            _suppressTextChanged = true;
+            if (hasContent)
+                NoteEditor.Document.SetText(TextSetOptions.FormatRtf, rtf);
+            else
+                NoteEditor.Document.SetText(TextSetOptions.None, "");
+            _suppressTextChanged = false;
+
+            NoteEditor.Focus(FocusState.Programmatic);
+            NoteChanged?.Invoke();
             return;
         }
-
-        SaveTasks();
 
         // Focus previous task
         var focusIndex = Math.Max(0, index - 1);
@@ -712,23 +752,39 @@ public sealed partial class NoteWindow : Window
         SaveCurrentNote();
         AutoResizeWindow();
 
-        if (_slashFlyout == null)
+        if (_slashFlyout == null && AppSettings.LoadSlashEnabled())
         {
             var slashPos = SlashCommands.DetectSlash(NoteEditor);
             if (slashPos >= 0)
             {
                 var actions = SlashCommands.RichEditActions(NoteEditor, slashPos);
                 var sp = slashPos;
-                actions.Add(new ActionPanel.ActionItem("\uE73A", "T\u00e2che", [], () => ConvertToTaskList(sp)));
-                actions.Add(new ActionPanel.ActionItem("\uE720", "Audio", [], () =>
+                actions.Add(new ActionPanel.ActionItem("\uE73A", Lang.T("task"), [], () => ConvertToTaskList(sp)));
+                actions.Add(new ActionPanel.ActionItem("\uE720", Lang.T("audio"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     StartVoiceRecording();
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE71B", "Lien", [], () =>
+                actions.Add(new ActionPanel.ActionItem("\uE71B", Lang.T("link"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
-                    ShowLinkFlyout();
+                    DispatcherQueue.TryEnqueue(() => ShowLinkFlyout());
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE722", Lang.T("capture"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(NoteEditor, sp);
+                    StartScreenCapture(NoteEditor);
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE8F4", Lang.T("extract_text"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(NoteEditor, sp);
+                    StartOcrCapture(NoteEditor);
+                }));
+                actions.Add(new ActionPanel.ActionItem("\uE70F", Lang.T("text_editor"), [], () =>
+                {
+                    SlashCommands.DeleteSlash(NoteEditor, sp);
+                    SaveCurrentNote();
+                    OpenInNotepadRequested?.Invoke();
                 }));
                 _slashFlyout = SlashCommands.Show(NoteEditor, actions, () => _slashFlyout = null);
             }
@@ -739,33 +795,36 @@ public sealed partial class NoteWindow : Window
     {
         var actions = new List<ActionPanel.ActionItem>
         {
-            new(null, "Gras", ["Ctrl", "B"], ToggleBold,
+            new(null, Lang.T("bold"), ["Ctrl", "B"], ToggleBold,
                 Icon: new TextBlock { Text = "B", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14,
                     Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
                     VerticalAlignment = VerticalAlignment.Center }),
-            new(null, "Italique", ["Ctrl", "I"], ToggleItalic,
+            new(null, Lang.T("italic"), ["Ctrl", "I"], ToggleItalic,
                 Icon: new TextBlock { Text = "I", FontStyle = Windows.UI.Text.FontStyle.Italic, FontSize = 14,
                     Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
                     VerticalAlignment = VerticalAlignment.Center }),
-            new(null, "Soulign\u00e9", ["Ctrl", "U"], ToggleUnderline,
+            new(null, Lang.T("underline"), ["Ctrl", "U"], ToggleUnderline,
                 Icon: new TextBlock { Text = "S", TextDecorations = Windows.UI.Text.TextDecorations.Underline, FontSize = 14,
                     Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
                     VerticalAlignment = VerticalAlignment.Center }),
-            new(null, "Barr\u00e9", [], ToggleStrikethrough,
+            new(null, Lang.T("strikethrough"), [], ToggleStrikethrough,
                 Icon: new TextBlock { Text = "ab", TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough, FontSize = 13,
                     Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
                     VerticalAlignment = VerticalAlignment.Center }),
-            new("\uE8FD", "Liste \u00e0 puces", [], ToggleBullets),
+            new("\uE8FD", Lang.T("bullet_list"), [], ToggleBullets),
+            new("\uE71B", Lang.T("link"), [], () => DispatcherQueue.TryEnqueue(() => ShowLinkFlyout())),
+            new("\uE722", Lang.T("screenshot"), [], () => StartScreenCapture(NoteEditor)),
+            new("\uE8F4", Lang.T("extract_text"), [], () => StartOcrCapture(NoteEditor)),
         };
 
-        var flyout = ActionPanel.Create("Format", actions);
+        var flyout = ActionPanel.Create(Lang.T("format"), actions);
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft;
         flyout.ShowAt(FormatButton);
     }
 
     private void Color_Click(object sender, RoutedEventArgs e)
     {
-        var flyout = ActionPanel.CreateColorPicker("Couleur", _note.Color, colorName =>
+        var flyout = ActionPanel.CreateColorPicker(Lang.T("color"), _note.Color, colorName =>
         {
             _note.Color = colorName;
             ApplyNoteColor(colorName);
@@ -774,6 +833,43 @@ public sealed partial class NoteWindow : Window
         });
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
         flyout.ShowAt(ColorButton);
+    }
+
+    // ── Screen capture ──────────────────────────────────────────
+
+    private void StartScreenCapture(RichEditBox editor)
+    {
+        ScreenCaptureService.CaptureAndInsert(this, editor, () =>
+        {
+            if (editor == NoteEditor)
+                SaveCurrentNote();
+            else if (editor == TaskNoteEditor)
+                SaveTaskNoteContent();
+            AutoResizeWindow();
+        });
+    }
+
+    // ── OCR capture ─────────────────────────────────────────────
+
+    private void StartOcrCapture(RichEditBox editor)
+    {
+        var overlay = new OcrCaptureOverlay();
+        overlay.CaptureCanceled += (_, _) => { };
+        overlay.RegionCaptured += async (_, region) =>
+        {
+            var text = await OcrService.ExtractTextAsync(region.Pixels, region.Width, region.Height);
+            if (!string.IsNullOrEmpty(text))
+            {
+                editor.Document.Selection.TypeText(text);
+                editor.Focus(FocusState.Programmatic);
+                if (editor == NoteEditor)
+                    SaveCurrentNote();
+                else if (editor == TaskNoteEditor)
+                    SaveTaskNoteContent();
+                AutoResizeWindow();
+            }
+        };
+        overlay.Activate();
     }
 
     // ── Voice dictation ─────────────────────────────────────────
@@ -812,8 +908,8 @@ public sealed partial class NoteWindow : Window
             // No model configured — show a tip
             var tip = new TeachingTip
             {
-                Title = "Mod\u00e8le vocal non configur\u00e9",
-                Subtitle = "Configurez un mod\u00e8le dans Param\u00e8tres \u2192 Mod\u00e8le",
+            Title = Lang.T("voice_model_not_configured"),
+                Subtitle = Lang.T("configure_model_hint"),
                 IsLightDismissEnabled = true,
                 PreferredPlacement = TeachingTipPlacementMode.Top,
                 Target = VoiceButton,
@@ -874,96 +970,75 @@ public sealed partial class NoteWindow : Window
         }
     }
 
-    private void ShowLinkFlyout()
+    private async void ShowLinkFlyout()
     {
         var sel = NoteEditor.Document.Selection;
         sel.GetText(Microsoft.UI.Text.TextGetOptions.None, out var selectedText);
         selectedText = selectedText.TrimEnd('\r', '\n');
 
-        var flyout = new Flyout();
-        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(300, 360);
-
-        var panel = new StackPanel { Spacing = 8, Padding = new Thickness(8) };
-        panel.Children.Add(ActionPanel.CreateHeader("Lien"));
-
         var displayBox = new TextBox
         {
-            PlaceholderText = "Texte du lien (facultatif)",
-            Header = "Texte d'affichage",
+            PlaceholderText = Lang.T("link_text_optional"),
+            Header = Lang.T("display_text"),
             FontSize = 13,
             Text = selectedText ?? ""
         };
-        panel.Children.Add(displayBox);
 
         var urlBox = new TextBox
         {
-            PlaceholderText = "Lien vers une page web existante",
-            Header = "Adresse",
+            PlaceholderText = Lang.T("link_to_webpage"),
+            Header = Lang.T("address"),
             FontSize = 13
         };
+
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(displayBox);
         panel.Children.Add(urlBox);
 
-        var buttonsPanel = new StackPanel
+        var dialog = new ContentDialog
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 4, 0, 0)
+            Title = Lang.T("link"),
+            Content = panel,
+            PrimaryButtonText = Lang.T("insert"),
+            CloseButtonText = Lang.T("cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot
         };
 
-        var insertBtn = new Button
-        {
-            Content = "Ins\u00e9rer",
-            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
-        };
-        insertBtn.Click += (_, _) =>
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
         {
             var url = urlBox.Text.Trim();
-            if (string.IsNullOrEmpty(url)) return;
-
-            var display = displayBox.Text.Trim();
-            var docSel = NoteEditor.Document.Selection;
-
-            if (!string.IsNullOrEmpty(display) && string.IsNullOrEmpty(selectedText))
+            if (!string.IsNullOrEmpty(url))
             {
-                docSel.TypeText(display);
-                docSel.SetRange(docSel.EndPosition - display.Length, docSel.EndPosition);
+                var display = displayBox.Text.Trim();
+                var docSel = NoteEditor.Document.Selection;
+
+                if (!string.IsNullOrEmpty(display) && string.IsNullOrEmpty(selectedText))
+                {
+                    docSel.TypeText(display);
+                    docSel.SetRange(docSel.EndPosition - display.Length, docSel.EndPosition);
+                }
+
+                docSel.Link = "\"" + url + "\"";
+                docSel.CharacterFormat.ForegroundColor = Windows.UI.Color.FromArgb(255, 96, 180, 255);
             }
-
-            docSel.Link = "\"" + url + "\"";
-            docSel.CharacterFormat.ForegroundColor = Windows.UI.Color.FromArgb(255, 96, 180, 255);
-
-            flyout.Hide();
-            NoteEditor.Focus(FocusState.Programmatic);
-        };
-
-        var cancelBtn = new Button { Content = "Annuler" };
-        cancelBtn.Click += (_, _) =>
-        {
-            flyout.Hide();
-            NoteEditor.Focus(FocusState.Programmatic);
-        };
-
-        buttonsPanel.Children.Add(insertBtn);
-        buttonsPanel.Children.Add(cancelBtn);
-        panel.Children.Add(buttonsPanel);
-
-        flyout.Content = panel;
-        flyout.ShowAt(NoteEditor);
+        }
+        NoteEditor.Focus(FocusState.Programmatic);
     }
 
     private void Menu_Click(object sender, RoutedEventArgs e)
     {
-        var favLabel = _note.IsFavorite ? "Retirer des favoris" : "Ajouter aux favoris";
+        var favLabel = _note.IsFavorite ? Lang.T("remove_favorite") : Lang.T("add_favorite");
         var favGlyph = _note.IsFavorite ? "\uE735" : "\uE734";
         var reminderLabel = _note.ReminderAt != null
-            ? $"Rappel ({_note.ReminderAt:dd/MM HH:mm})"
-            : "D\u00e9finir un rappel";
+            ? $"{Lang.T("reminder")} ({_note.ReminderAt:dd/MM HH:mm})"
+            : Lang.T("set_reminder");
         var tagLabel = _note.Tags.Count > 0
-            ? $"Tags ({string.Join(", ", _note.Tags)})"
-            : "Tags";
+            ? $"{Lang.T("tags")} ({string.Join(", ", _note.Tags)})"
+            : Lang.T("tags");
 
-        var autoResizeLabel = _autoResize ? "D\u00e9sactiver redimensionnement auto" : "Redimensionnement auto";
+        var autoResizeLabel = _autoResize ? Lang.T("disable_auto_resize") : Lang.T("auto_resize");
         var autoResizeGlyph = _autoResize ? "\uE73F" : "\uE740";
 
         var actions = new List<ActionPanel.ActionItem>
@@ -981,14 +1056,19 @@ public sealed partial class NoteWindow : Window
                 _autoResize = !_autoResize;
                 if (_autoResize) AutoResizeWindow();
             }),
-            new("\uE74D", "Supprimer la note", [], () =>
+            new("\uE70F", Lang.T("text_editor"), [], () =>
+            {
+                SaveCurrentNote();
+                OpenInNotepadRequested?.Invoke();
+            }),
+            new("\uE74D", Lang.T("delete_note"), [], () =>
             {
                 _notesManager.DeleteNote(_note.Id);
                 this.Close();
             }, IsDestructive: true),
         };
 
-        var flyout = ActionPanel.Create("Actions", actions);
+        var flyout = ActionPanel.Create(Lang.T("actions"), actions);
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
         flyout.ShowAt(MenuButton);
     }
@@ -1003,8 +1083,8 @@ public sealed partial class NoteWindow : Window
         {
             var actions = new List<ActionPanel.ActionItem>
             {
-                new("\uE70F", $"Modifier ({task.ReminderAt:dd/MM HH:mm})", [], async () => await EditTaskReminder(task, bellIcon, reminderBtn)),
-                new("\uE711", "Supprimer le rappel", [], () =>
+                new("\uE70F", $"{Lang.T("edit")} ({task.ReminderAt:dd/MM HH:mm})", [], async () => await EditTaskReminder(task, bellIcon, reminderBtn)),
+                new("\uE711", Lang.T("delete_reminder"), [], () =>
                 {
                     task.ReminderAt = null;
                     bellIcon.Glyph = "\uE823";
@@ -1014,7 +1094,7 @@ public sealed partial class NoteWindow : Window
                     SaveTasks();
                 }),
             };
-            var flyout = ActionPanel.Create("Rappel", actions);
+            var flyout = ActionPanel.Create(Lang.T("reminder"), actions);
             flyout.ShowAt(reminderBtn);
             return;
         }
@@ -1056,18 +1136,18 @@ public sealed partial class NoteWindow : Window
         };
 
         var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(new TextBlock { Text = "Date", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("date"), FontSize = 12 });
         panel.Children.Add(datePicker);
-        panel.Children.Add(new TextBlock { Text = "Heure", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("time"), FontSize = 12 });
         panel.Children.Add(timeBox);
         panel.Children.Add(timeError);
 
         var dialog = new ContentDialog
         {
-            Title = "D\u00e9finir un rappel",
+            Title = Lang.T("set_reminder"),
             Content = panel,
-            PrimaryButtonText = "D\u00e9finir",
-            CloseButtonText = "Annuler",
+            PrimaryButtonText = Lang.T("set"),
+            CloseButtonText = Lang.T("cancel"),
             XamlRoot = this.Content.XamlRoot
         };
 
@@ -1078,7 +1158,7 @@ public sealed partial class NoteWindow : Window
 
             if (!TimeSpan.TryParse(timeBox.Text.Trim(), out var time) || time.TotalHours >= 24)
             {
-                timeError.Text = "Format invalide (ex: 14:30)";
+                timeError.Text = Lang.T("invalid_time_format");
                 timeError.Visibility = Visibility.Visible;
                 continue;
             }
@@ -1105,7 +1185,7 @@ public sealed partial class NoteWindow : Window
         flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(220, 280);
 
         var panel = new StackPanel { Spacing = 0 };
-        panel.Children.Add(ActionPanel.CreateHeader("Tags"));
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("tags")));
         panel.Children.Add(ActionPanel.CreateSeparator());
 
         var allTags = _notesManager.GetAllTags();
@@ -1181,7 +1261,7 @@ public sealed partial class NoteWindow : Window
         panel.Children.Add(ActionPanel.CreateSeparator());
         var addBox = new TextBox
         {
-            PlaceholderText = "Nouveau tag...",
+            PlaceholderText = Lang.T("new_tag"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -1218,15 +1298,15 @@ public sealed partial class NoteWindow : Window
         {
             var actions = new List<ActionPanel.ActionItem>
             {
-                new("\uE70F", $"Modifier ({_note.ReminderAt:dd/MM HH:mm})", [], async () => await EditNoteReminder()),
-                new("\uE711", "Supprimer le rappel", [], () =>
+                new("\uE70F", $"{Lang.T("edit")} ({_note.ReminderAt:dd/MM HH:mm})", [], async () => await EditNoteReminder()),
+                new("\uE711", Lang.T("delete_reminder"), [], () =>
                 {
                     _note.ReminderAt = null;
                     _notesManager.UpdateNoteReminder(_note.Id, null);
                     NoteChanged?.Invoke();
                 }),
             };
-            var flyout = ActionPanel.Create("Rappel", actions);
+            var flyout = ActionPanel.Create(Lang.T("reminder"), actions);
             flyout.ShowAt(MenuButton);
             return;
         }
@@ -1267,18 +1347,18 @@ public sealed partial class NoteWindow : Window
         };
 
         var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(new TextBlock { Text = "Date", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("date"), FontSize = 12 });
         panel.Children.Add(datePicker);
-        panel.Children.Add(new TextBlock { Text = "Heure", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("time"), FontSize = 12 });
         panel.Children.Add(timeBox);
         panel.Children.Add(timeError);
 
         var dialog = new ContentDialog
         {
-            Title = "D\u00e9finir un rappel",
+            Title = Lang.T("set_reminder"),
             Content = panel,
-            PrimaryButtonText = "D\u00e9finir",
-            CloseButtonText = "Annuler",
+            PrimaryButtonText = Lang.T("set"),
+            CloseButtonText = Lang.T("cancel"),
             XamlRoot = this.Content.XamlRoot
         };
 
@@ -1289,7 +1369,7 @@ public sealed partial class NoteWindow : Window
 
             if (!TimeSpan.TryParse(timeBox.Text.Trim(), out var time) || time.TotalHours >= 24)
             {
-                timeError.Text = "Format invalide (ex: 14:30)";
+                timeError.Text = Lang.T("invalid_time_format");
                 timeError.Visibility = Visibility.Visible;
                 continue;
             }

@@ -26,7 +26,6 @@
             <Button x:Name="AddButton" HorizontalAlignment="Left" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
                     Padding="10,6" Click="AddButton_Click"
-                    ToolTipService.ToolTip="Nouveau"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon Glyph="&#xE710;" FontSize="16"/>
@@ -34,23 +33,20 @@
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Spacing="0">
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="CompactButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Compact_Click"
-                        ToolTipService.ToolTip="Compacter"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="CompactIcon" Glyph="&#xE70E;" FontSize="12"/>
                 </Button>
                 <Button x:Name="PinButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Pin_Click"
-                        ToolTipService.ToolTip="&#201;pingler"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12"/>
                 </Button>
                 <Button x:Name="SettingsButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Settings_Click"
-                        ToolTipService.ToolTip="Param&#232;tres"
                         PointerEntered="SettingsButton_PointerEntered"
                         PointerExited="SettingsButton_PointerExited">
                     <AnimatedIcon x:Name="SettingsAnimatedIcon" Width="16" Height="16">
@@ -62,9 +58,8 @@
                         </AnimatedIcon.FallbackIconSource>
                     </AnimatedIcon>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="CloseButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Close_Click"
-                        ToolTipService.ToolTip="Fermer"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon Glyph="&#xE711;" FontSize="12"/>
@@ -89,7 +84,6 @@
         <!-- Row 2: Search -->
         <Grid x:Name="SearchGrid" Grid.Row="2" Margin="12,0,12,8">
             <TextBox x:Name="SearchBox"
-                     PlaceholderText="Rechercher..."
                      TextChanged="SearchBox_TextChanged"
                      CornerRadius="4"
                      Padding="8,6,30,6">
@@ -120,7 +114,6 @@
                     Background="Transparent" BorderThickness="0"
                     Padding="8,5" CornerRadius="6"
                     Click="QuickAccessButton_Click"
-                    ToolTipService.ToolTip="Acc&#232;s rapide"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon Glyph="&#xE700;" FontSize="14"

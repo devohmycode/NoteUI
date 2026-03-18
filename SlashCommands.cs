@@ -65,11 +65,11 @@ internal static class SlashCommands
         flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle();
 
         var panel = new StackPanel { Spacing = 0 };
-        panel.Children.Add(ActionPanel.CreateHeader("Commandes"));
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("commands")));
 
         var searchBox = new TextBox
         {
-            PlaceholderText = "Filtrer...",
+            PlaceholderText = Lang.T("filter"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -124,31 +124,31 @@ internal static class SlashCommands
 
         return
         [
-            new(null, "Titre 1", [], () => Run(() => ApplyHeading(editor, 24f)),
+            new(null, Lang.T("heading1"), [], () => Run(() => ApplyHeading(editor, 24f)),
                 Icon: Icon("H1", primary, bold: true)),
-            new(null, "Titre 2", [], () => Run(() => ApplyHeading(editor, 20f)),
+            new(null, Lang.T("heading2"), [], () => Run(() => ApplyHeading(editor, 20f)),
                 Icon: Icon("H2", primary, bold: true)),
-            new(null, "Titre 3", [], () => Run(() => ApplyHeading(editor, 16f)),
+            new(null, Lang.T("heading3"), [], () => Run(() => ApplyHeading(editor, 16f)),
                 Icon: Icon("H3", primary, bold: true)),
-            new(null, "Gras", ["Ctrl", "B"], () => Run(() => Toggle(editor, f => f.Bold, (f, v) => f.Bold = v)),
+            new(null, Lang.T("bold"), ["Ctrl", "B"], () => Run(() => Toggle(editor, f => f.Bold, (f, v) => f.Bold = v)),
                 Icon: Icon("B", primary, bold: true)),
-            new(null, "Italique", ["Ctrl", "I"], () => Run(() => Toggle(editor, f => f.Italic, (f, v) => f.Italic = v)),
+            new(null, Lang.T("italic"), ["Ctrl", "I"], () => Run(() => Toggle(editor, f => f.Italic, (f, v) => f.Italic = v)),
                 Icon: Icon("I", primary, italic: true)),
-            new(null, "Soulign\u00e9", ["Ctrl", "U"], () => Run(() =>
+            new(null, Lang.T("underline"), ["Ctrl", "U"], () => Run(() =>
             {
                 var s = editor.Document.Selection;
                 s.CharacterFormat.Underline = s.CharacterFormat.Underline != UnderlineType.None
                     ? UnderlineType.None : UnderlineType.Single;
             }), Icon: Icon("S", primary, underline: true)),
-            new(null, "Barr\u00e9", [], () => Run(() => Toggle(editor, f => f.Strikethrough, (f, v) => f.Strikethrough = v)),
+            new(null, Lang.T("strikethrough"), [], () => Run(() => Toggle(editor, f => f.Strikethrough, (f, v) => f.Strikethrough = v)),
                 Icon: Icon("ab", primary, strikethrough: true)),
-            new("\uE8FD", "Liste \u00e0 puces", [], () => Run(() =>
+            new("\uE8FD", Lang.T("bullet_list"), [], () => Run(() =>
             {
                 var s = editor.Document.Selection;
                 s.ParagraphFormat.ListType = s.ParagraphFormat.ListType == MarkerType.Bullet
                     ? MarkerType.None : MarkerType.Bullet;
             })),
-            new("\uE787", "Date et heure", ["F5"], () => Run(() =>
+            new("\uE787", Lang.T("datetime"), ["F5"], () => Run(() =>
                 editor.Document.Selection.TypeText(DateTime.Now.ToString("HH:mm dd/MM/yyyy")))),
         ];
     }
@@ -165,7 +165,7 @@ internal static class SlashCommands
 
         return
         [
-            new("\uE787", "Date et heure", [], () => Run(() =>
+            new("\uE787", Lang.T("datetime"), [], () => Run(() =>
             {
                 var p = textBox.SelectionStart;
                 var dt = DateTime.Now.ToString("HH:mm dd/MM/yyyy");

@@ -23,12 +23,11 @@
                     VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
                     Padding="8,6" Click="Settings_Click"
-                    Visibility="Collapsed"
-                    ToolTipService.ToolTip="Changer de mod&#232;le">
+                    Visibility="Collapsed">
                 <FontIcon Glyph="&#xE713;" FontSize="14"/>
             </Button>
 
-            <TextBlock x:Name="TitleBarText" Text="Note audio"
+            <TextBlock x:Name="TitleBarText"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        FontSize="13"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -36,13 +35,11 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Spacing="0">
                 <Button x:Name="PinButton" Background="Transparent" BorderThickness="0"
-                        Padding="8,6" Click="Pin_Click"
-                        ToolTipService.ToolTip="&#201;pingler">
+                        Padding="8,6" Click="Pin_Click">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12"/>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
-                        Padding="8,6" Click="Close_Click"
-                        ToolTipService.ToolTip="Fermer">
+                <Button x:Name="VoiceCloseButton" Background="Transparent" BorderThickness="0"
+                        Padding="8,6" Click="Close_Click">
                     <FontIcon Glyph="&#xE711;" FontSize="12"/>
                 </Button>
             </StackPanel>
@@ -52,7 +49,7 @@
         <Grid x:Name="LanguageSelectionPage" Grid.Row="1" Padding="16,8"
               VerticalAlignment="Center" HorizontalAlignment="Center">
             <StackPanel Spacing="20" MaxWidth="320">
-                <TextBlock Text="Choisir une langue"
+                <TextBlock x:Name="ChooseLanguageLabel"
                            Style="{StaticResource BodyStrongTextBlockStyle}"
                            HorizontalAlignment="Center"/>
 
@@ -62,7 +59,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <TextBlock Text="&#x1F1EB;&#x1F1F7;" FontSize="24" VerticalAlignment="Center"/>
                             <StackPanel Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Text="Fran&#231;ais"/>
+                                <TextBlock x:Name="FrenchLabel"/>
                                 <TextBlock Text="Vosk &amp; Whisper"
                                            Style="{StaticResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -139,7 +136,7 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <ProgressBar x:Name="DownloadProgress"
                                  Minimum="0" Maximum="100"/>
-                    <Button Content="Annuler"
+            <Button x:Name="CancelDownloadButton"
                             HorizontalAlignment="Right"
                             Click="CancelDownload_Click"/>
                 </StackPanel>
@@ -179,8 +176,7 @@
                         Click="Record_Click">
                     <FontIcon x:Name="RecordIcon" Glyph="&#xE720;" FontSize="20"/>
                 </Button>
-                <Button x:Name="SaveNoteButton"
-                        Content="Enregistrer la note"
+                    <Button x:Name="SaveNoteButton"
                         Visibility="Collapsed"
                         Click="SaveNote_Click"/>
             </StackPanel>
@@ -203,7 +199,6 @@
         <!-- Status bar -->
         <Grid Grid.Row="2" Padding="12,6" Background="Transparent">
             <TextBlock x:Name="StatusText"
-                       Text="Choisir une langue"
                        HorizontalAlignment="Center"
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>

@@ -1,0 +1,510 @@
+namespace NoteUI;
+
+public static class Lang
+{
+    private static string _current = "en";
+
+    private static readonly Dictionary<string, Dictionary<string, string>> Strings = new()
+    {
+        ["en"] = new()
+        {
+            // ── Common ──────────────────────────────────────────
+            ["untitled"] = "Untitled",
+            ["search"] = "Search...",
+            ["filter"] = "Filter...",
+            ["cancel"] = "Cancel",
+            ["close"] = "Close",
+            ["delete"] = "Delete",
+            ["save"] = "Save",
+            ["insert"] = "Insert",
+            ["ok"] = "OK",
+            ["or"] = "or",
+            ["error"] = "Error",
+            ["edit"] = "Edit",
+            ["notes"] = "Notes",
+            ["note"] = "Note",
+
+            // ── Format / Slash commands ──────────────────────────
+            ["format"] = "Format",
+            ["bold"] = "Bold",
+            ["italic"] = "Italic",
+            ["underline"] = "Underline",
+            ["strikethrough"] = "Strikethrough",
+            ["bullet_list"] = "Bullet list",
+            ["link"] = "Link",
+            ["screenshot"] = "Screenshot",
+            ["extract_text"] = "Extract text",
+            ["heading1"] = "Heading 1",
+            ["heading2"] = "Heading 2",
+            ["heading3"] = "Heading 3",
+            ["datetime"] = "Date and time",
+            ["commands"] = "Commands",
+            ["task"] = "Task",
+            ["audio"] = "Audio",
+            ["capture"] = "Capture",
+            ["text_editor"] = "Text editor",
+            ["markdown"] = "Markdown",
+            ["text_mode"] = "Text",
+            ["split_view"] = "Markdown",
+            ["markdown_preview"] = "Markdown preview",
+            ["back_to_editor"] = "Back to editor",
+
+            // ── Note actions
+            ["actions"] = "Actions",
+            ["add_favorite"] = "Add to favorites",
+            ["remove_favorite"] = "Remove from favorites",
+            ["set_reminder"] = "Set reminder",
+            ["tags"] = "Tags",
+            ["auto_resize"] = "Auto resize",
+            ["disable_auto_resize"] = "Disable auto resize",
+            ["delete_note"] = "Delete note",
+            ["add_task"] = "Add task",
+            ["notes_placeholder"] = "Notes...",
+
+            // ── Reminder ────────────────────────────────────────
+            ["reminder"] = "Reminder",
+            ["delete_reminder"] = "Delete reminder",
+            ["date"] = "Date",
+            ["time"] = "Time",
+            ["set"] = "Set",
+            ["invalid_time_format"] = "Invalid format (e.g. 14:30)",
+
+            // ── Tags ────────────────────────────────────────────
+            ["new_tag"] = "New tag...",
+
+            // ── Link dialog ─────────────────────────────────────
+            ["link_text_optional"] = "Link text (optional)",
+            ["display_text"] = "Display text",
+            ["link_to_webpage"] = "Link to existing web page",
+            ["address"] = "Address",
+
+            // ── Colors ──────────────────────────────────────────
+            ["color"] = "Color",
+            ["color_none"] = "No color",
+            ["color_yellow"] = "Yellow",
+            ["color_green"] = "Green",
+            ["color_mint"] = "Mint",
+            ["color_teal"] = "Teal",
+            ["color_blue"] = "Blue",
+            ["color_lavender"] = "Lavender",
+            ["color_purple"] = "Purple",
+            ["color_pink"] = "Pink",
+            ["color_coral"] = "Coral",
+            ["color_orange"] = "Orange",
+            ["color_peach"] = "Peach",
+            ["color_sand"] = "Sand",
+            ["color_gray"] = "Gray",
+            ["color_charcoal"] = "Charcoal",
+
+            // ── Settings ────────────────────────────────────────
+            ["theme"] = "Theme",
+            ["theme_system"] = "System",
+            ["theme_light"] = "Light",
+            ["theme_dark"] = "Dark",
+            ["backdrop"] = "Backdrop",
+            ["backdrop_acrylic_custom"] = "Custom Acrylic",
+            ["backdrop_none"] = "None",
+            ["storage"] = "Storage",
+            ["local"] = "Local",
+            ["custom_folder"] = "Custom folder",
+            ["cloud"] = "Cloud",
+            ["disconnect"] = "Disconnect",
+            ["voice_section"] = "Voice",
+            ["voice_model"] = "Voice model",
+            ["shortcuts_section"] = "Shortcuts",
+            ["shortcuts_label"] = "Shortcuts",
+            ["editor_section"] = "Editor",
+            ["slash_commands_toggle"] = "Slash commands",
+            ["enabled"] = "Enabled",
+            ["disabled"] = "Disabled",
+            ["language_section"] = "Language",
+            ["data_section"] = "Data",
+            ["export"] = "Export",
+            ["import"] = "Import",
+
+            // ── Context menu ────────────────────────────────────
+            ["pin"] = "Pin",
+            ["unpin"] = "Unpin",
+            ["duplicate"] = "Duplicate",
+
+            // ── Firebase ────────────────────────────────────────
+            ["sign_in"] = "Sign in",
+            ["sign_up"] = "Sign up",
+            ["continue_with_google"] = "Continue with Google",
+            ["email"] = "Email",
+            ["password"] = "Password",
+            ["email_password_required"] = "Email and password required",
+            ["firebase_config_missing"] = "Firebase configuration missing",
+            ["firebase_config_message"] = "Add a firebase.public.json file next to NoteUI.exe (or set NOTEUI_FIREBASE_URL and NOTEUI_FIREBASE_API_KEY for development).",
+            ["error_google"] = "Google error",
+            ["connection_error"] = "Connection error",
+            ["firebase_not_configured"] = "Not configured",
+            ["firebase_email_exists"] = "This account already exists",
+            ["firebase_email_not_found"] = "Account not found",
+            ["firebase_invalid_password"] = "Incorrect password",
+            ["firebase_weak_password"] = "Password too weak (6 characters min.)",
+            ["firebase_invalid_email"] = "Invalid email",
+            ["firebase_invalid_credentials"] = "Incorrect email or password",
+            ["firebase_unknown_error"] = "Unknown error",
+            ["firebase_google_not_configured"] = "Google OAuth not configured (NOTEUI_GOOGLE_CLIENT_ID).",
+
+            // ── WebDAV ──────────────────────────────────────────
+            ["webdav_url"] = "WebDAV URL",
+            ["username"] = "Username",
+            ["url_user_required"] = "URL and username required",
+
+            // ── Notepad ─────────────────────────────────────────
+            ["notepad"] = "Notepad",
+            ["file_menu"] = "File",
+            ["new_item"] = "New",
+            ["new_tab"] = "New tab",
+            ["close_tab"] = "Close tab",
+            ["open"] = "Open",
+            ["save_as"] = "Save as",
+            ["save_to_notes"] = "Save to notes",
+            ["edit_menu"] = "Edit",
+            ["undo"] = "Undo",
+            ["redo"] = "Redo",
+            ["cut"] = "Cut",
+            ["copy"] = "Copy",
+            ["paste"] = "Paste",
+            ["select_all"] = "Select all",
+            ["datetime_menu"] = "Time and date",
+            ["view_menu"] = "View",
+            ["word_wrap"] = "Word wrap",
+            ["zoom_in"] = "Zoom in",
+            ["zoom_out"] = "Zoom out",
+            ["zoom_default"] = "Default zoom",
+            ["normal_text"] = "Normal text",
+            ["paragraph_style"] = "Paragraph style",
+            ["char_count_one"] = "1 character",
+            ["char_count_many"] = "{0} characters",
+
+            // ── OCR ─────────────────────────────────────────────
+            ["ocr_select_zone"] = "Select a zone",
+            ["ocr_too_small"] = "Selection too small",
+
+            // ── Voice ───────────────────────────────────────────
+            ["voice_note"] = "Voice note",
+            ["choose_language"] = "Choose a language",
+            ["french"] = "French",
+            ["english"] = "English",
+            ["models_available"] = "Available models — {0}",
+            ["select_model"] = "Select a model",
+            ["downloading"] = "Downloading {0}...",
+            ["extracting"] = "Extracting...",
+            ["download_cancelled"] = "Download cancelled",
+            ["error_with_msg"] = "Error: {0}",
+            ["ready_record"] = "Ready — press to record",
+            ["change_model"] = "Change model",
+            ["model_active"] = "● Active",
+            ["model_downloaded"] = "Downloaded",
+            ["recording"] = "Recording...",
+            ["finished_duration"] = "Finished — {0}",
+            ["note_saved"] = "Note saved!",
+            ["voice_model_not_configured"] = "Voice model not configured",
+            ["configure_model_hint"] = "Configure a model in Settings → Model",
+
+            // ── Tooltips ────────────────────────────────────────
+            ["tip_new"] = "New",
+            ["tip_compact"] = "Compact",
+            ["tip_pin"] = "Pin",
+            ["tip_settings"] = "Settings",
+            ["tip_close"] = "Close",
+            ["tip_menu"] = "Menu",
+            ["tip_format"] = "Format",
+            ["tip_voice"] = "Voice dictation",
+            ["tip_color"] = "Color",
+            ["tip_change_model"] = "Change model",
+            ["tip_quick_access"] = "Quick access",
+            ["tip_bold"] = "Bold (Ctrl+B)",
+            ["tip_italic"] = "Italic (Ctrl+I)",
+            ["tip_strikethrough"] = "Strikethrough",
+            ["tip_underline"] = "Underline (Ctrl+U)",
+
+            // ── Acrylic settings ────────────────────────────────
+            ["acrylic_custom_title"] = "Custom Acrylic",
+            ["tint_opacity"] = "Tint opacity",
+            ["luminosity"] = "Luminosity",
+            ["tint_color"] = "Tint color",
+            ["fallback_color"] = "Fallback color",
+            ["style"] = "Style",
+
+            // ── Views / Quick access ─────────────────────────────
+            ["favorites"] = "Favorites",
+            ["no_favorites"] = "No favorites",
+            ["no_tags"] = "No tags",
+            ["no_notes_tag"] = "No notes with #{0}",
+            ["quick_access"] = "Quick access",
+            ["rich_text"] = "Rich text",
+            ["connect"] = "Connect",
+            ["save_note"] = "Save note",
+            ["download"] = "Download",
+            ["language_en"] = "English",
+            ["language_fr"] = "French",
+        },
+
+        ["fr"] = new()
+        {
+            // ── Common ──────────────────────────────────────────
+            ["untitled"] = "Sans titre",
+            ["search"] = "Rechercher...",
+            ["filter"] = "Filtrer...",
+            ["cancel"] = "Annuler",
+            ["close"] = "Fermer",
+            ["delete"] = "Supprimer",
+            ["save"] = "Enregistrer",
+            ["insert"] = "Insérer",
+            ["ok"] = "OK",
+            ["or"] = "ou",
+            ["error"] = "Erreur",
+            ["edit"] = "Modifier",
+            ["notes"] = "Notes",
+            ["note"] = "Note",
+
+            // ── Format / Slash commands ──────────────────────────
+            ["format"] = "Format",
+            ["bold"] = "Gras",
+            ["italic"] = "Italique",
+            ["underline"] = "Souligné",
+            ["strikethrough"] = "Barré",
+            ["bullet_list"] = "Liste à puces",
+            ["link"] = "Lien",
+            ["screenshot"] = "Capture d'écran",
+            ["extract_text"] = "Extraire le texte",
+            ["heading1"] = "Titre 1",
+            ["heading2"] = "Titre 2",
+            ["heading3"] = "Titre 3",
+            ["datetime"] = "Date et heure",
+            ["commands"] = "Commandes",
+            ["task"] = "Tâche",
+            ["audio"] = "Audio",
+            ["capture"] = "Capture",
+            ["text_editor"] = "Éditeur de texte",
+            ["markdown"] = "Markdown",
+            ["text_mode"] = "Texte",
+            ["split_view"] = "Markdown",
+            ["markdown_preview"] = "Aperçu Markdown",
+            ["back_to_editor"] = "Revenir en mode édition",
+
+            // ── Note actions ────────────────────────────────────
+            ["actions"] = "Actions",
+            ["add_favorite"] = "Ajouter aux favoris",
+            ["remove_favorite"] = "Retirer des favoris",
+            ["set_reminder"] = "Définir un rappel",
+            ["tags"] = "Tags",
+            ["auto_resize"] = "Redimensionnement auto",
+            ["disable_auto_resize"] = "Désactiver redimensionnement auto",
+            ["delete_note"] = "Supprimer la note",
+            ["add_task"] = "Ajouter une tâche",
+            ["notes_placeholder"] = "Notes...",
+
+            // ── Reminder ────────────────────────────────────────
+            ["reminder"] = "Rappel",
+            ["delete_reminder"] = "Supprimer le rappel",
+            ["date"] = "Date",
+            ["time"] = "Heure",
+            ["set"] = "Définir",
+            ["invalid_time_format"] = "Format invalide (ex: 14:30)",
+
+            // ── Tags ────────────────────────────────────────────
+            ["new_tag"] = "Nouveau tag...",
+
+            // ── Link dialog ─────────────────────────────────────
+            ["link_text_optional"] = "Texte du lien (facultatif)",
+            ["display_text"] = "Texte d'affichage",
+            ["link_to_webpage"] = "Lien vers une page web existante",
+            ["address"] = "Adresse",
+
+            // ── Colors ──────────────────────────────────────────
+            ["color"] = "Couleur",
+            ["color_none"] = "Sans couleur",
+            ["color_yellow"] = "Jaune",
+            ["color_green"] = "Vert",
+            ["color_mint"] = "Menthe",
+            ["color_teal"] = "Turquoise",
+            ["color_blue"] = "Bleu",
+            ["color_lavender"] = "Lavande",
+            ["color_purple"] = "Violet",
+            ["color_pink"] = "Rose",
+            ["color_coral"] = "Corail",
+            ["color_orange"] = "Orange",
+            ["color_peach"] = "Pêche",
+            ["color_sand"] = "Sable",
+            ["color_gray"] = "Gris",
+            ["color_charcoal"] = "Anthracite",
+
+            // ── Settings ────────────────────────────────────────
+            ["theme"] = "Thème",
+            ["theme_system"] = "Système",
+            ["theme_light"] = "Clair",
+            ["theme_dark"] = "Sombre",
+            ["backdrop"] = "Fond",
+            ["backdrop_acrylic_custom"] = "Acrylic personnalisé",
+            ["backdrop_none"] = "Aucun",
+            ["storage"] = "Stockage",
+            ["local"] = "Local",
+            ["custom_folder"] = "Dossier personnalisé",
+            ["cloud"] = "Cloud",
+            ["disconnect"] = "Déconnecter",
+            ["voice_section"] = "Vocal",
+            ["voice_model"] = "Modèle vocal",
+            ["shortcuts_section"] = "Raccourcis",
+            ["shortcuts_label"] = "Shortcuts",
+            ["editor_section"] = "Éditeur",
+            ["slash_commands_toggle"] = "Commandes slash",
+            ["enabled"] = "Activé",
+            ["disabled"] = "Désactivé",
+            ["language_section"] = "Langue",
+            ["data_section"] = "Données",
+            ["export"] = "Exporter",
+            ["import"] = "Importer",
+
+            // ── Context menu ────────────────────────────────────
+            ["pin"] = "Épingler",
+            ["unpin"] = "Désépingler",
+            ["duplicate"] = "Dupliquer",
+
+            // ── Firebase ────────────────────────────────────────
+            ["sign_in"] = "Se connecter",
+            ["sign_up"] = "S'inscrire",
+            ["continue_with_google"] = "Continuer avec Google",
+            ["email"] = "Email",
+            ["password"] = "Mot de passe",
+            ["email_password_required"] = "Email et mot de passe requis",
+            ["firebase_config_missing"] = "Configuration Firebase manquante",
+            ["firebase_config_message"] = "Ajoutez un fichier firebase.public.json à côté de NoteUI.exe (ou définissez NOTEUI_FIREBASE_URL et NOTEUI_FIREBASE_API_KEY pour le développement).",
+            ["error_google"] = "Erreur Google",
+            ["connection_error"] = "Erreur de connexion",
+            ["firebase_not_configured"] = "Non configuré",
+            ["firebase_email_exists"] = "Ce compte existe déjà",
+            ["firebase_email_not_found"] = "Compte introuvable",
+            ["firebase_invalid_password"] = "Mot de passe incorrect",
+            ["firebase_weak_password"] = "Mot de passe trop faible (6 caractères min.)",
+            ["firebase_invalid_email"] = "Email invalide",
+            ["firebase_invalid_credentials"] = "Email ou mot de passe incorrect",
+            ["firebase_unknown_error"] = "Erreur inconnue",
+            ["firebase_google_not_configured"] = "Google OAuth non configuré (NOTEUI_GOOGLE_CLIENT_ID).",
+
+            // ── WebDAV ──────────────────────────────────────────
+            ["webdav_url"] = "URL WebDAV",
+            ["username"] = "Nom d'utilisateur",
+            ["url_user_required"] = "URL et utilisateur requis",
+
+            // ── Notepad ─────────────────────────────────────────
+            ["notepad"] = "Bloc-notes",
+            ["file_menu"] = "Fichier",
+            ["new_item"] = "Nouveau",
+            ["new_tab"] = "Nouvel onglet",
+            ["close_tab"] = "Fermer l'onglet",
+            ["open"] = "Ouvrir",
+            ["save_as"] = "Enregistrer sous",
+            ["save_to_notes"] = "Enregistrer dans les notes",
+            ["edit_menu"] = "Modifier",
+            ["undo"] = "Annuler",
+            ["redo"] = "Rétablir",
+            ["cut"] = "Couper",
+            ["copy"] = "Copier",
+            ["paste"] = "Coller",
+            ["select_all"] = "Tout sélectionner",
+            ["datetime_menu"] = "Heure et date",
+            ["view_menu"] = "Affichage",
+            ["word_wrap"] = "Retour automatique à la ligne",
+            ["zoom_in"] = "Zoom avant",
+            ["zoom_out"] = "Zoom arrière",
+            ["zoom_default"] = "Zoom par défaut",
+            ["normal_text"] = "Texte normal",
+            ["paragraph_style"] = "Style de paragraphe",
+            ["char_count_one"] = "1 caractère",
+            ["char_count_many"] = "{0} caractères",
+
+            // ── OCR ─────────────────────────────────────────────
+            ["ocr_select_zone"] = "Sélectionnez une zone",
+            ["ocr_too_small"] = "Sélection trop petite",
+
+            // ── Voice ───────────────────────────────────────────
+            ["voice_note"] = "Note audio",
+            ["choose_language"] = "Choisir une langue",
+            ["french"] = "Français",
+            ["english"] = "English",
+            ["models_available"] = "Modèles disponibles — {0}",
+            ["select_model"] = "Sélectionner un modèle",
+            ["downloading"] = "Téléchargement de {0}...",
+            ["extracting"] = "Extraction...",
+            ["download_cancelled"] = "Téléchargement annulé",
+            ["error_with_msg"] = "Erreur : {0}",
+            ["ready_record"] = "Prêt — appuyez pour enregistrer",
+            ["change_model"] = "Changer de modèle",
+            ["model_active"] = "● Actif",
+            ["model_downloaded"] = "Téléchargé",
+            ["recording"] = "Enregistrement en cours...",
+            ["finished_duration"] = "Terminé — {0}",
+            ["note_saved"] = "Note enregistrée !",
+            ["voice_model_not_configured"] = "Modèle vocal non configuré",
+            ["configure_model_hint"] = "Configurez un modèle dans Paramètres → Modèle",
+
+            // ── Tooltips ────────────────────────────────────────
+            ["tip_new"] = "Nouveau",
+            ["tip_compact"] = "Compacter",
+            ["tip_pin"] = "Épingler",
+            ["tip_settings"] = "Paramètres",
+            ["tip_close"] = "Fermer",
+            ["tip_menu"] = "Menu",
+            ["tip_format"] = "Format",
+            ["tip_voice"] = "Dictée vocale",
+            ["tip_color"] = "Couleur",
+            ["tip_change_model"] = "Changer de modèle",
+            ["tip_quick_access"] = "Accès rapide",
+            ["tip_bold"] = "Gras (Ctrl+B)",
+            ["tip_italic"] = "Italique (Ctrl+I)",
+            ["tip_strikethrough"] = "Barré",
+            ["tip_underline"] = "Souligné (Ctrl+U)",
+
+            // ── Acrylic settings ────────────────────────────────
+            ["acrylic_custom_title"] = "Acrylic personnalisé",
+            ["tint_opacity"] = "Opacité de teinte",
+            ["luminosity"] = "Luminosité",
+            ["tint_color"] = "Couleur de teinte",
+            ["fallback_color"] = "Couleur de repli",
+            ["style"] = "Style",
+
+            // ── Views / Quick access ─────────────────────────────
+            ["favorites"] = "Favoris",
+            ["no_favorites"] = "Aucun favori",
+            ["no_tags"] = "Aucun tag",
+            ["no_notes_tag"] = "Aucune note avec #{0}",
+            ["quick_access"] = "Accès rapide",
+            ["rich_text"] = "Texte enrichi",
+            ["connect"] = "Connecter",
+            ["save_note"] = "Enregistrer la note",
+            ["download"] = "Téléchargement",
+            ["language_en"] = "Anglais",
+            ["language_fr"] = "Français",
+        }
+    };
+
+    public static string Current => _current;
+
+    public static void SetLanguage(string lang)
+    {
+        if (Strings.ContainsKey(lang))
+            _current = lang;
+    }
+
+    public static string T(string key)
+    {
+        if (Strings.TryGetValue(_current, out var dict) && dict.TryGetValue(key, out var value))
+            return value;
+        // Fallback to English
+        if (Strings.TryGetValue("en", out var en) && en.TryGetValue(key, out var fallback))
+            return fallback;
+        return key;
+    }
+
+    public static string T(string key, params object[] args)
+    {
+        var template = T(key);
+        try { return string.Format(template, args); }
+        catch { return template; }
+    }
+}

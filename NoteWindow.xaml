@@ -23,14 +23,13 @@
                     VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
                     Padding="8,6" Click="Menu_Click"
-                    ToolTipService.ToolTip="Menu"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon x:Name="MenuIcon" Glyph="&#xE712;" FontSize="14" Foreground="Black"/>
             </Button>
 
             <!-- Inline editable title -->
-            <TextBlock x:Name="TitleText" Text="Sans titre"
+            <TextBlock x:Name="TitleText"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        FontSize="13" Foreground="Black"
                        IsHitTestVisible="True"
@@ -49,7 +48,6 @@
                         VerticalAlignment="Center" Spacing="0">
                 <Button x:Name="CompactButton" Background="Transparent" BorderThickness="0"
                         Padding="8,6" Click="Compact_Click"
-                        ToolTipService.ToolTip="Compacter"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="CompactIcon" Glyph="&#xE70E;" FontSize="12" Foreground="Black"/>
@@ -57,14 +55,12 @@
                 <Button x:Name="PinButton"
                         Background="Transparent" BorderThickness="0"
                         Padding="8,6" Click="Pin_Click"
-                        ToolTipService.ToolTip="&#201;pingler"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12" Foreground="Black"/>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
+                <Button x:Name="NoteCloseButton" Background="Transparent" BorderThickness="0"
                         Padding="8,6" Click="Close_Click"
-                        ToolTipService.ToolTip="Fermer"
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="CloseIcon" Glyph="&#xE711;" FontSize="12" Foreground="Black"/>
@@ -107,7 +103,6 @@
                              CornerRadius="0"
                              Padding="12,8"
                              MinHeight="80"
-                             PlaceholderText="Notes..."
                              TextChanged="TaskNoteEditor_TextChanged">
                     <RichEditBox.Resources>
                         <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
@@ -135,7 +130,6 @@
             <Button x:Name="FormatButton" Grid.Column="0"
                     Background="Transparent" BorderThickness="0"
                     Padding="10,6" Click="Format_Click"
-                    ToolTipService.ToolTip="Format"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon Glyph="&#xE8D2;" FontSize="12"
@@ -145,7 +139,6 @@
             <Button x:Name="VoiceButton" Grid.Column="1"
                     Background="Transparent" BorderThickness="0"
                     Padding="10,6" Click="Voice_Click"
-                    ToolTipService.ToolTip="Dict&#233;e vocale"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon x:Name="VoiceIcon" Glyph="&#xE720;" FontSize="12"
@@ -155,7 +148,6 @@
             <Button x:Name="ColorButton" Grid.Column="3"
                     Background="Transparent" BorderThickness="0"
                     Padding="10,6" Click="Color_Click"
-                    ToolTipService.ToolTip="Couleur"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
                 <Ellipse x:Name="ColorIndicator" Width="12" Height="12"/>

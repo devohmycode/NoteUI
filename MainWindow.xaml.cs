@@ -1,10 +1,13 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Storage.Streams;
 
 namespace NoteUI;
 
@@ -93,6 +96,7 @@ public sealed partial class MainWindow : Window
         };
 
         _notes.Load();
+        ApplyLocalization();
         RefreshNotesList();
 
         _reminderService = new ReminderService(_notes);
@@ -100,6 +104,18 @@ public sealed partial class MainWindow : Window
 
         // Auto-connect cloud sync if previously configured
         _ = InitCloudSync();
+    }
+
+    private void ApplyLocalization()
+    {
+        ToolTipService.SetToolTip(AddButton, Lang.T("tip_new"));
+        ToolTipService.SetToolTip(CompactButton, Lang.T("tip_compact"));
+        ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
+        ToolTipService.SetToolTip(SettingsButton, Lang.T("tip_settings"));
+        ToolTipService.SetToolTip(CloseButton, Lang.T("tip_close"));
+        ToolTipService.SetToolTip(QuickAccessButton, Lang.T("tip_quick_access"));
+        SearchBox.PlaceholderText = Lang.T("search");
+        TitleLabel.Text = Lang.T("notes");
     }
 
     private async Task InitCloudSync()
@@ -145,27 +161,54 @@ public sealed partial class MainWindow : Window
     private UIElement CreateNoteCard(NoteEntry note)
     {
         var color = NoteColors.Get(note.Color);
+        var hasColor = !NoteColors.IsNone(note.Color);
 
-        var border = new Border
+        var outer = new Border
         {
-            Background = new SolidColorBrush(color),
+            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(16, 10, 16, 16),
         };
 
-        var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var stack = new StackPanel();
 
-        var topRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 4 };
-        var metaPanel = topRow;
+        // Thin color bar at top
+        if (hasColor)
+        {
+            stack.Children.Add(new Border
+            {
+                Height = 3,
+                Background = new SolidColorBrush(color),
+                CornerRadius = new CornerRadius(8, 8, 0, 0),
+            });
+        }
+
+        var content = new StackPanel { Padding = new Thickness(14, 10, 14, 14) };
+
+        // Title row: bold title left, meta right
+        var titleRow = new Grid();
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleText = new TextBlock
+        {
+            Text = note.Title,
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(titleText, 0);
+        titleRow.Children.Add(titleText);
+
+        var metaPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
         if (note.IsPinned)
         {
             metaPanel.Children.Add(new FontIcon
             {
                 Glyph = "\uE718",
                 FontSize = 10,
-                Foreground = new SolidColorBrush(new Windows.UI.Color { A = 140, R = 0, G = 0, B = 0 }),
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
@@ -175,7 +218,7 @@ public sealed partial class MainWindow : Window
             {
                 Text = note.TaskProgress,
                 FontSize = 11,
-                Foreground = new SolidColorBrush(new Windows.UI.Color { A = 140, R = 0, G = 0, B = 0 }),
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
@@ -183,44 +226,76 @@ public sealed partial class MainWindow : Window
         {
             Text = note.DateDisplay,
             FontSize = 12,
-            Foreground = new SolidColorBrush(new Windows.UI.Color { A = 160, R = 0, G = 0, B = 0 }),
+            Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
         });
-        Grid.SetRow(topRow, 0);
+        Grid.SetColumn(metaPanel, 1);
+        titleRow.Children.Add(metaPanel);
 
+        content.Children.Add(titleRow);
+
+        // Preview text
         var preview = note.Preview;
-        if (string.IsNullOrEmpty(preview)) preview = note.Title;
-
-        var contentText = new TextBlock
+        if (!string.IsNullOrEmpty(preview))
         {
-            Text = preview,
-            TextWrapping = TextWrapping.Wrap,
-            MaxLines = 5,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            FontSize = 13,
-            Margin = new Thickness(0, 4, 0, 0),
-            Foreground = new SolidColorBrush(new Windows.UI.Color { A = 220, R = 0, G = 0, B = 0 }),
-        };
-        Grid.SetRow(contentText, 1);
+            content.Children.Add(new TextBlock
+            {
+                Text = preview,
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 3,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                FontSize = 12,
+                Margin = new Thickness(0, 2, 0, 0),
+                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            });
+        }
 
-        grid.Children.Add(topRow);
-        grid.Children.Add(contentText);
-        border.Child = grid;
+        // Image thumbnail (first embedded screenshot)
+        var imageBytes = note.ExtractFirstImageBytes();
+        if (imageBytes != null)
+        {
+            var img = new Image
+            {
+                MaxHeight = 60,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            content.Children.Add(img);
+            _ = LoadThumbnailAsync(img, imageBytes);
+        }
+
+        stack.Children.Add(content);
+        outer.Child = stack;
 
         var noteId = note.Id;
-        border.Tapped += (_, _) => OpenNote(noteId);
-        border.RightTapped += (s, e) =>
+        outer.Tapped += (_, _) => OpenNote(noteId);
+        outer.RightTapped += (s, e) =>
         {
             e.Handled = true;
             ShowNoteContextMenu(noteId, (FrameworkElement)s);
         };
 
-        return border;
+        return outer;
+    }
+
+    private static async Task LoadThumbnailAsync(Image img, byte[] data)
+    {
+        try
+        {
+            var stream = new InMemoryRandomAccessStream();
+            await stream.WriteAsync(data.AsBuffer());
+            stream.Seek(0);
+            var bitmap = new BitmapImage { DecodePixelHeight = 60 };
+            await bitmap.SetSourceAsync(stream);
+            img.Source = bitmap;
+        }
+        catch { }
     }
 
     private void ShowNoteContextMenu(string noteId, FrameworkElement target)
     {
         var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
-        var pinLabel = note?.IsPinned == true ? "D\u00e9s\u00e9pingler" : "\u00c9pingler";
+        var pinLabel = note?.IsPinned == true ? Lang.T("unpin") : Lang.T("pin");
         var pinGlyph = note?.IsPinned == true ? "\uE77A" : "\uE718";
 
         var actions = new List<ActionPanel.ActionItem>
@@ -230,8 +305,8 @@ public sealed partial class MainWindow : Window
                 _notes.TogglePin(noteId);
                 RefreshCurrentView();
             }),
-            new("\uE70F", "Modifier", [], () => OpenNote(noteId)),
-            new("\uE8C8", "Dupliquer", [], () =>
+            new("\uE70F", Lang.T("edit"), [], () => OpenNote(noteId)),
+            new("\uE8C8", Lang.T("duplicate"), [], () =>
             {
                 var copy = _notes.DuplicateNote(noteId);
                 if (copy != null)
@@ -240,7 +315,7 @@ public sealed partial class MainWindow : Window
                     OpenNote(copy.Id);
                 }
             }),
-            new("\uE74D", "Supprimer", [], () =>
+            new("\uE74D", Lang.T("delete"), [], () =>
             {
                 var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
                 if (existing != null)
@@ -252,7 +327,7 @@ public sealed partial class MainWindow : Window
             }, IsDestructive: true),
         };
 
-        var flyout = ActionPanel.Create("Actions", actions);
+        var flyout = ActionPanel.Create(Lang.T("actions"), actions);
         flyout.ShowAt(target);
     }
 
@@ -274,6 +349,13 @@ public sealed partial class MainWindow : Window
         var window = new NoteWindow(_notes, note, parentRect);
         _openNoteWindows.Add(window);
         window.NoteChanged += () => RefreshCurrentView();
+        window.OpenInNotepadRequested += () =>
+        {
+            var note = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+            if (note == null) return;
+            OpenNotepad();
+            _notepadWindow?.LoadNoteContent(note.Title, note.Content);
+        };
         window.Closed += (_, _) =>
         {
             _openNoteWindows.Remove(window);
@@ -334,6 +416,7 @@ public sealed partial class MainWindow : Window
                 AppSettings.ApplyThemeToWindow(this, t);
                 foreach (var w in _openNoteWindows)
                     AppSettings.ApplyThemeToWindow(w, t);
+                _ = _notes.SyncSettingsToFirebase();
             },
             onBackdropSelected: b =>
             {
@@ -343,6 +426,7 @@ public sealed partial class MainWindow : Window
                 AppSettings.ApplyToWindow(this, newSettings, ref _acrylicController, ref _configSource);
                 foreach (var w in _openNoteWindows)
                     w.ApplyBackdrop(newSettings);
+                _ = _notes.SyncSettingsToFirebase();
 
                 if (b == "acrylic_custom")
                     OpenAcrylicSettings();
@@ -375,7 +459,22 @@ public sealed partial class MainWindow : Window
                 await _notes.SyncFromWebDav();
                 RefreshCurrentView();
             },
-            onShowVoiceModels: f => ShowVoiceModelsInSettings(f));
+            onShowVoiceModels: f => ShowVoiceModelsInSettings(f),
+            currentLanguage: Lang.Current,
+            slashEnabled: AppSettings.LoadSlashEnabled(),
+            onLanguageSelected: lang =>
+            {
+                Lang.SetLanguage(lang);
+                AppSettings.SaveLanguage(lang);
+                ApplyLocalization();
+                RefreshCurrentView();
+                _ = _notes.SyncSettingsToFirebase();
+            },
+            onSlashToggled: enabled =>
+            {
+                AppSettings.SaveSlashEnabled(enabled);
+                _ = _notes.SyncSettingsToFirebase();
+            });
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
@@ -470,13 +569,13 @@ public sealed partial class MainWindow : Window
         };
         var userBox = new TextBox
         {
-            PlaceholderText = "Nom d'utilisateur",
+            PlaceholderText = Lang.T("username"),
             FontSize = 12,
             Margin = new Thickness(0, 0, 0, 8)
         };
         var passBox = new PasswordBox
         {
-            PlaceholderText = "Mot de passe",
+            PlaceholderText = Lang.T("password"),
             FontSize = 12
         };
         var errorText = new TextBlock
@@ -493,11 +592,11 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrEmpty(savedUser)) userBox.Text = savedUser;
 
         var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(new TextBlock { Text = "URL WebDAV", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("webdav_url"), FontSize = 12 });
         panel.Children.Add(urlBox);
-        panel.Children.Add(new TextBlock { Text = "Utilisateur", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("username"), FontSize = 12 });
         panel.Children.Add(userBox);
-        panel.Children.Add(new TextBlock { Text = "Mot de passe", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("password"), FontSize = 12 });
         panel.Children.Add(passBox);
         panel.Children.Add(errorText);
 
@@ -505,8 +604,8 @@ public sealed partial class MainWindow : Window
         {
             Title = "WebDAV / Nextcloud",
             Content = panel,
-            PrimaryButtonText = "Connecter",
-            CloseButtonText = "Annuler",
+            PrimaryButtonText = Lang.T("connect"),
+            CloseButtonText = Lang.T("cancel"),
             XamlRoot = this.Content.XamlRoot
         };
 
@@ -521,7 +620,7 @@ public sealed partial class MainWindow : Window
 
             if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(user))
             {
-                errorText.Text = "URL et utilisateur requis";
+                errorText.Text = Lang.T("url_user_required");
                 errorText.Visibility = Visibility.Visible;
                 continue;
             }
@@ -534,7 +633,7 @@ public sealed partial class MainWindow : Window
                 break;
             }
 
-            errorText.Text = error ?? "Erreur de connexion";
+            errorText.Text = error ?? Lang.T("connection_error");
             errorText.Visibility = Visibility.Visible;
         }
     }
@@ -549,7 +648,7 @@ public sealed partial class MainWindow : Window
         };
         var passwordBox = new PasswordBox
         {
-            PlaceholderText = "Mot de passe",
+            PlaceholderText = Lang.T("password"),
             FontSize = 12
         };
         var errorText = new TextBlock
@@ -573,7 +672,7 @@ public sealed partial class MainWindow : Window
         var googleContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         googleContent.Children.Add(new TextBlock { Text = "G", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
             Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 66, 133, 244)) });
-        googleContent.Children.Add(new TextBlock { Text = "Continuer avec Google", FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        googleContent.Children.Add(new TextBlock { Text = Lang.T("continue_with_google"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
         googleBtn.Content = googleContent;
 
         var separator = new Grid { Margin = new Thickness(0, 4, 0, 12) };
@@ -582,16 +681,16 @@ public sealed partial class MainWindow : Window
         separator.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var line1 = new Border { Height = 1, Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"], VerticalAlignment = VerticalAlignment.Center };
         var line2 = new Border { Height = 1, Background = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"], VerticalAlignment = VerticalAlignment.Center };
-        var orText = new TextBlock { Text = "ou", FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"], Margin = new Thickness(12, 0, 12, 0) };
+        var orText = new TextBlock { Text = Lang.T("or"), FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"], Margin = new Thickness(12, 0, 12, 0) };
         Grid.SetColumn(line1, 0); Grid.SetColumn(orText, 1); Grid.SetColumn(line2, 2);
         separator.Children.Add(line1); separator.Children.Add(orText); separator.Children.Add(line2);
 
         var panel = new StackPanel { Spacing = 4 };
         panel.Children.Add(googleBtn);
         panel.Children.Add(separator);
-        panel.Children.Add(new TextBlock { Text = "Email", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("email"), FontSize = 12 });
         panel.Children.Add(emailBox);
-        panel.Children.Add(new TextBlock { Text = "Mot de passe", FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = Lang.T("password"), FontSize = 12 });
         panel.Children.Add(passwordBox);
         panel.Children.Add(errorText);
 
@@ -599,9 +698,9 @@ public sealed partial class MainWindow : Window
         {
             Title = "Firebase",
             Content = panel,
-            PrimaryButtonText = "Se connecter",
-            SecondaryButtonText = "S'inscrire",
-            CloseButtonText = "Annuler",
+            PrimaryButtonText = Lang.T("sign_in"),
+            SecondaryButtonText = Lang.T("sign_up"),
+            CloseButtonText = Lang.T("cancel"),
             XamlRoot = this.Content.XamlRoot
         };
 
@@ -609,9 +708,9 @@ public sealed partial class MainWindow : Window
         {
             var missingConfigDialog = new ContentDialog
             {
-                Title = "Configuration Firebase manquante",
-                Content = "Ajoutez un fichier firebase.public.json \u00e0 c\u00f4t\u00e9 de NoteUI.exe (ou d\u00e9finissez NOTEUI_FIREBASE_URL et NOTEUI_FIREBASE_API_KEY pour le d\u00e9veloppement).",
-                CloseButtonText = "OK",
+                Title = Lang.T("firebase_config_missing"),
+                Content = Lang.T("firebase_config_message"),
+                CloseButtonText = Lang.T("ok"),
                 XamlRoot = this.Content.XamlRoot
             };
             await missingConfigDialog.ShowAsync();
@@ -631,7 +730,7 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                errorText.Text = error ?? "Erreur Google";
+                errorText.Text = error ?? Lang.T("error_google");
                 errorText.Visibility = Visibility.Visible;
                 // Re-show dialog
                 await dialog.ShowAsync();
@@ -648,7 +747,7 @@ public sealed partial class MainWindow : Window
 
             if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
             {
-                errorText.Text = "Email et mot de passe requis";
+                errorText.Text = Lang.T("email_password_required");
                 errorText.Visibility = Visibility.Visible;
                 continue;
             }
@@ -664,7 +763,7 @@ public sealed partial class MainWindow : Window
                 break;
             }
 
-            errorText.Text = error ?? "Erreur de connexion";
+            errorText.Text = error ?? Lang.T("connection_error");
             errorText.Visibility = Visibility.Visible;
         }
     }
@@ -685,10 +784,21 @@ public sealed partial class MainWindow : Window
                 w.ApplyBackdrop(settings);
         });
 
-        // Position next to main window
+        // Position next to main window (left if not enough space on right)
         var pos = AppWindow.Position;
         var size = AppWindow.Size;
-        _acrylicSettingsWindow.SetPosition(pos.X + size.Width + 4, pos.Y);
+        var display = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+        var workArea = display.WorkArea;
+        const int settingsWidth = 280;
+        const int gap = 4;
+
+        int settingsX;
+        if (pos.X + size.Width + gap + settingsWidth <= workArea.X + workArea.Width)
+            settingsX = pos.X + size.Width + gap;
+        else
+            settingsX = pos.X - settingsWidth - gap;
+
+        _acrylicSettingsWindow.SetPosition(settingsX, pos.Y);
 
         _acrylicSettingsWindow.Closed += (_, _) => _acrylicSettingsWindow = null;
         _acrylicSettingsWindow.Activate();
@@ -754,13 +864,19 @@ public sealed partial class MainWindow : Window
 
     private void QuickAccessButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_currentView != ViewMode.Notes)
+        {
+            GoBack();
+            return;
+        }
+
         var actions = new List<ActionPanel.ActionItem>
         {
-            new("\uE734", "Favoris", [], () => SwitchView(ViewMode.Favorites)),
-            new("\uE1CB", "Tags", [], () => SwitchView(ViewMode.Tags)),
+            new("\uE734", Lang.T("favorites"), [], () => SwitchView(ViewMode.Favorites)),
+            new("\uE1CB", Lang.T("tags"), [], () => SwitchView(ViewMode.Tags)),
         };
 
-        var flyout = ActionPanel.Create("Acc\u00e8s rapide", actions);
+        var flyout = ActionPanel.Create(Lang.T("quick_access"), actions);
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
         flyout.ShowAt(QuickAccessButton);
     }
@@ -790,22 +906,31 @@ public sealed partial class MainWindow : Window
 
     private void RefreshCurrentView()
     {
-        BackIcon.Visibility = _currentView == ViewMode.Notes
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        // Swap QuickAccess icon: back arrow when not on Notes, hamburger otherwise
+        var qaIcon = (FontIcon)QuickAccessButton.Content;
+        if (_currentView == ViewMode.Notes)
+        {
+            qaIcon.Glyph = "\uE700";
+            BackIcon.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            qaIcon.Glyph = "\uE72B";
+            BackIcon.Visibility = Visibility.Collapsed;
+        }
 
         switch (_currentView)
         {
             case ViewMode.Notes:
-                TitleLabel.Text = "Notes";
+                TitleLabel.Text = Lang.T("notes");
                 RefreshNotesList(SearchBox.Text);
                 break;
             case ViewMode.Favorites:
-                TitleLabel.Text = "Favoris";
+                TitleLabel.Text = Lang.T("favorites");
                 ShowFavorites(SearchBox.Text);
                 break;
             case ViewMode.Tags:
-                TitleLabel.Text = "Tags";
+                TitleLabel.Text = Lang.T("tags");
                 ShowTags(SearchBox.Text);
                 break;
             case ViewMode.TagFilter:
@@ -830,7 +955,7 @@ public sealed partial class MainWindow : Window
 
         if (favorites.Count == 0)
         {
-            NotesList.Children.Add(CreateEmptyState("\uE734", "Aucun favori"));
+            NotesList.Children.Add(CreateEmptyState("\uE734", Lang.T("no_favorites")));
             return;
         }
 
@@ -856,7 +981,7 @@ public sealed partial class MainWindow : Window
 
         if (tags.Count == 0)
         {
-            NotesList.Children.Add(CreateEmptyState("\uE1CB", "Aucun tag"));
+            NotesList.Children.Add(CreateEmptyState("\uE1CB", Lang.T("no_tags")));
             return;
         }
 
@@ -888,7 +1013,7 @@ public sealed partial class MainWindow : Window
 
         if (notes.Count == 0)
         {
-            NotesList.Children.Add(CreateEmptyState("\uE1CB", $"Aucune note avec #{tag}"));
+            NotesList.Children.Add(CreateEmptyState("\uE1CB", Lang.T("no_notes_tag", tag)));
             return;
         }
 

@@ -57,7 +57,7 @@ public static class ActionPanel
 
         var searchBox = new TextBox
         {
-            PlaceholderText = "Rechercher...",
+            PlaceholderText = Lang.T("search"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -91,10 +91,11 @@ public static class ActionPanel
         panel.Children.Add(CreateHeader(header));
         panel.Children.Add(CreateSeparator());
 
-        foreach (var (name, hex, display) in NoteColors.All)
+        foreach (var (name, hex) in NoteColors.All)
         {
             var isSelected = name == currentColor;
             var colorName = name;
+            var display = NoteColors.GetDisplayName(name);
 
             var btn = new Button
             {
@@ -188,7 +189,9 @@ public static class ActionPanel
         Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
         Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
         Action<Flyout>? onShowVoiceModels = null,
-        Action<Flyout>? onShowShortcuts = null)
+        Action<Flyout>? onShowShortcuts = null,
+        string? currentLanguage = null, bool slashEnabled = true,
+        Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -197,10 +200,10 @@ public static class ActionPanel
         var allButtons = new List<Button>();
 
         // Theme section
-        panel.Children.Add(CreateHeader("Th\u00e8me"));
+        panel.Children.Add(CreateHeader(Lang.T("theme")));
         panel.Children.Add(CreateSeparator());
 
-        var themes = new[] { ("system", "Syst\u00e8me"), ("light", "Clair"), ("dark", "Sombre") };
+        var themes = new[] { ("system", Lang.T("theme_system")), ("light", Lang.T("theme_light")), ("dark", Lang.T("theme_dark")) };
         foreach (var (key, label) in themes)
         {
             var k = key;
@@ -215,7 +218,7 @@ public static class ActionPanel
 
         // Backdrop section
         panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader("Fond"));
+        panel.Children.Add(CreateHeader(Lang.T("backdrop")));
         panel.Children.Add(CreateSeparator());
 
         var backdrops = new[]
@@ -223,8 +226,8 @@ public static class ActionPanel
             ("acrylic", "Acrylic"),
             ("mica", "Mica"),
             ("mica_alt", "MicaAlt"),
-            ("acrylic_custom", "Acrylic personnalis\u00e9"),
-            ("none", "Aucun")
+            ("acrylic_custom", Lang.T("backdrop_acrylic_custom")),
+            ("none", Lang.T("backdrop_none"))
         };
         foreach (var (key, label) in backdrops)
         {
@@ -240,18 +243,18 @@ public static class ActionPanel
 
         // Storage section
         panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader("Stockage"));
+        panel.Children.Add(CreateHeader(Lang.T("storage")));
         panel.Children.Add(CreateSeparator());
 
         var isCustomFolder = !string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
 
         // Local option
-        var localBtn = CreateCheckItem("Local", !isFirebaseConnected && !isCustomFolder, () =>
+        var localBtn = CreateCheckItem(Lang.T("local"), !isFirebaseConnected && !isCustomFolder, () =>
         {
             if (isCustomFolder) { onResetFolder(); flyout.Hide(); }
             else if (isFirebaseConnected) { onDisconnectFirebase(); flyout.Hide(); }
         });
-        localBtn.Tag = "Local";
+        localBtn.Tag = Lang.T("local");
         allButtons.Add(localBtn);
         panel.Children.Add(localBtn);
 
@@ -268,24 +271,24 @@ public static class ActionPanel
         }
 
         // Dossier option
-        var folderBtn = CreateCheckItem("Dossier personnalis\u00e9", isCustomFolder && !isFirebaseConnected, () =>
+        var folderBtn = CreateCheckItem(Lang.T("custom_folder"), isCustomFolder && !isFirebaseConnected, () =>
         {
             onChangeFolder();
             flyout.Hide();
         });
-        folderBtn.Tag = "Dossier personnalis\u00e9";
+        folderBtn.Tag = Lang.T("custom_folder");
         allButtons.Add(folderBtn);
         panel.Children.Add(folderBtn);
 
         // Cloud (Firebase) option
         if (isFirebaseConnected)
         {
-            var cloudBtn = CreateCheckItem("Cloud", true, () =>
+            var cloudBtn = CreateCheckItem(Lang.T("cloud"), true, () =>
             {
                 onSyncFirebase();
                 flyout.Hide();
             });
-            cloudBtn.Tag = "Cloud";
+            cloudBtn.Tag = Lang.T("cloud");
             allButtons.Add(cloudBtn);
             panel.Children.Add(cloudBtn);
 
@@ -301,23 +304,23 @@ public static class ActionPanel
                 });
             }
 
-            var disconnectBtn = CreateCheckItem("D\u00e9connecter", false, () =>
+            var disconnectBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
             {
                 onDisconnectFirebase();
                 flyout.Hide();
             });
-            disconnectBtn.Tag = "D\u00e9connecter Cloud";
+            disconnectBtn.Tag = Lang.T("disconnect") + " Cloud";
             allButtons.Add(disconnectBtn);
             panel.Children.Add(disconnectBtn);
         }
         else
         {
-            var connectBtn = CreateCheckItem("Cloud", false, () =>
+            var connectBtn = CreateCheckItem(Lang.T("cloud"), false, () =>
             {
                 onConfigureFirebase();
                 flyout.Hide();
             });
-            connectBtn.Tag = "Cloud";
+            connectBtn.Tag = Lang.T("cloud");
             allButtons.Add(connectBtn);
             panel.Children.Add(connectBtn);
         }
@@ -346,12 +349,12 @@ public static class ActionPanel
                 });
             }
 
-            var disconnectWdBtn = CreateCheckItem("D\u00e9connecter", false, () =>
+            var disconnectWdBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
             {
                 onDisconnectWebDav();
                 flyout.Hide();
             });
-            disconnectWdBtn.Tag = "D\u00e9connecter WebDAV";
+            disconnectWdBtn.Tag = Lang.T("disconnect") + " WebDAV";
             allButtons.Add(disconnectWdBtn);
             panel.Children.Add(disconnectWdBtn);
         }
@@ -371,10 +374,10 @@ public static class ActionPanel
         if (onShowVoiceModels != null)
         {
             panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader("Vocal"));
+            panel.Children.Add(CreateHeader(Lang.T("voice_section")));
             panel.Children.Add(CreateSeparator());
-            var voiceBtn = CreateCheckItem("Mod\u00e8le vocal", false, () => onShowVoiceModels(flyout));
-            voiceBtn.Tag = "Mod\u00e8le vocal TTS STT";
+            var voiceBtn = CreateCheckItem(Lang.T("voice_model"), false, () => onShowVoiceModels(flyout));
+            voiceBtn.Tag = Lang.T("voice_model") + " TTS STT";
             allButtons.Add(voiceBtn);
             panel.Children.Add(voiceBtn);
         }
@@ -383,19 +386,60 @@ public static class ActionPanel
         if (onShowShortcuts != null)
         {
             panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader("Raccourcis"));
+            panel.Children.Add(CreateHeader(Lang.T("shortcuts_section")));
             panel.Children.Add(CreateSeparator());
-            var shortcutsBtn = CreateCheckItem("Shortcuts", false, () => onShowShortcuts(flyout));
-            shortcutsBtn.Tag = "Shortcuts Raccourcis clavier";
+            var shortcutsBtn = CreateCheckItem(Lang.T("shortcuts_label"), false, () => onShowShortcuts(flyout));
+            shortcutsBtn.Tag = Lang.T("shortcuts_label") + " Raccourcis clavier";
             allButtons.Add(shortcutsBtn);
             panel.Children.Add(shortcutsBtn);
+        }
+
+        // Editor section (slash commands toggle)
+        if (onSlashToggled != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("editor_section")));
+            panel.Children.Add(CreateSeparator());
+
+            var slashToggle = new ToggleSwitch
+            {
+                IsOn = slashEnabled,
+                Header = Lang.T("slash_commands_toggle"),
+                OnContent = Lang.T("enabled"),
+                OffContent = Lang.T("disabled"),
+                Margin = new Thickness(10, 4, 10, 4),
+            };
+            slashToggle.Toggled += (_, _) => onSlashToggled(slashToggle.IsOn);
+            panel.Children.Add(slashToggle);
+        }
+
+        // Language section
+        if (onLanguageSelected != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(CreateHeader(Lang.T("language_section")));
+            panel.Children.Add(CreateSeparator());
+
+            var langs = new[] { ("en", Lang.T("language_en")), ("fr", Lang.T("language_fr")) };
+            foreach (var (code, label) in langs)
+            {
+                var c = code;
+                var btn = CreateCheckItem(label, code == (currentLanguage ?? "en"), () =>
+                {
+                    onLanguageSelected(c);
+                    flyout.Hide();
+                });
+                btn.Tag = label;
+                allButtons.Add(btn);
+                panel.Children.Add(btn);
+            }
         }
 
         // Search
         panel.Children.Add(CreateSeparator());
         var searchBox = new TextBox
         {
-            PlaceholderText = "Rechercher...",
+            PlaceholderText = Lang.T("search"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -585,7 +629,7 @@ public static class ActionPanel
 
         var header = new TextBlock
         {
-            Text = "Mod\u00e8le vocal",
+            Text = Lang.T("voice_model"),
             FontSize = 12,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             VerticalAlignment = VerticalAlignment.Center,
@@ -601,7 +645,7 @@ public static class ActionPanel
         // French models
         panel.Children.Add(new TextBlock
         {
-            Text = "Fran\u00e7ais",
+            Text = Lang.T("french"),
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             Margin = new Thickness(10, 8, 0, 4)
@@ -612,7 +656,7 @@ public static class ActionPanel
         // English models
         panel.Children.Add(new TextBlock
         {
-            Text = "English",
+            Text = Lang.T("english"),
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             Margin = new Thickness(10, 8, 0, 4)
@@ -629,7 +673,7 @@ public static class ActionPanel
         var isCurrent = model.Id == currentModelId;
         var isDownloaded = model.IsDownloaded;
         var engine = model.Engine == SttEngine.Vosk ? "Vosk" : "Whisper";
-        var status = isCurrent ? "\u25cf Actif" : isDownloaded ? "T\u00e9l\u00e9charg\u00e9" : $"{model.SizeMB} MB";
+        var status = isCurrent ? Lang.T("model_active") : isDownloaded ? Lang.T("model_downloaded") : $"{model.SizeMB} MB";
 
         var btn = new Button
         {
@@ -706,7 +750,7 @@ public static class ActionPanel
             var menuFlyout = new MenuFlyout();
             var deleteMenuItem = new MenuFlyoutItem
             {
-                Text = "Supprimer",
+                Text = Lang.T("delete"),
                 Icon = new FontIcon { Glyph = "\uE74D" }
             };
             deleteMenuItem.Click += (_, _) => onDelete(model);
@@ -726,7 +770,7 @@ public static class ActionPanel
                 };
                 var statusText = new TextBlock
                 {
-                    Text = $"T\u00e9l\u00e9chargement de {model.Name}...",
+                    Text = Lang.T("downloading", model.Name),
                     FontSize = 12
                 };
                 var sizeText = new TextBlock
@@ -744,15 +788,27 @@ public static class ActionPanel
                 var dialog = new ContentDialog
                 {
                     XamlRoot = xamlRoot,
-                    Title = "T\u00e9l\u00e9chargement",
+                    Title = Lang.T("download"),
                     Content = contentPanel,
-                    CloseButtonText = "Annuler"
+                    CloseButtonText = Lang.T("cancel")
                 };
 
                 var progress = new Progress<double>(p =>
                 {
-                    progressBar.Value = p * 100;
-                    statusText.Text = $"T\u00e9l\u00e9chargement... {p * 100:F0}%";
+                    dialog.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (p < 0)
+                        {
+                            progressBar.IsIndeterminate = true;
+                            statusText.Text = "Extraction...";
+                        }
+                        else
+                        {
+                            progressBar.IsIndeterminate = false;
+                            progressBar.Value = p * 100;
+                            statusText.Text = $"T\u00e9l\u00e9chargement... {p * 100:F0}%";
+                        }
+                    });
                 });
 
                 bool success = false;
@@ -783,9 +839,9 @@ public static class ActionPanel
                     var errDlg = new ContentDialog
                     {
                         XamlRoot = xamlRoot,
-                        Title = "Erreur",
+                        Title = Lang.T("error"),
                         Content = errorMsg,
-                        CloseButtonText = "OK"
+                        CloseButtonText = Lang.T("ok")
                     };
                     await errDlg.ShowAsync();
                 }
@@ -826,7 +882,7 @@ public static class ActionPanel
 
         var header = new TextBlock
         {
-            Text = "Raccourcis clavier",
+            Text = Lang.T("shortcuts_label"),
             FontSize = 12,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
             VerticalAlignment = VerticalAlignment.Center,

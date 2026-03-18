@@ -43,13 +43,11 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal"
                         VerticalAlignment="Center" Spacing="0" Margin="0,0,4,0">
                 <Button x:Name="PinButton" Background="Transparent" BorderThickness="0"
-                        Padding="8,6" Click="Pin_Click"
-                        ToolTipService.ToolTip="&#201;pingler">
+                        Padding="8,6" Click="Pin_Click">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12"/>
                 </Button>
-                <Button Background="Transparent" BorderThickness="0"
-                        Padding="8,6" Click="Close_Click"
-                        ToolTipService.ToolTip="Fermer">
+                <Button x:Name="NpCloseButton" Background="Transparent" BorderThickness="0"
+                        Padding="8,6" Click="Close_Click">
                     <FontIcon Glyph="&#xE711;" FontSize="12"/>
                 </Button>
             </StackPanel>
@@ -57,67 +55,67 @@
 
         <!-- Row 1: Menu bar -->
         <MenuBar Grid.Row="1" Padding="2,0">
-            <MenuBarItem Title="Fichier">
-                <MenuFlyoutItem Text="Nouveau" Click="New_Click"
+            <MenuBarItem x:Name="FileMenu" Title="_">
+                <MenuFlyoutItem x:Name="MenuNew" Click="New_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+N">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="N"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
-                <MenuFlyoutItem Text="Nouvel onglet" Click="NewTab_Click"
+                <MenuFlyoutItem x:Name="MenuNewTab" Click="NewTab_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+T">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="T"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
-                <MenuFlyoutItem Text="Fermer l'onglet" Click="CloseTab_Click"
+                <MenuFlyoutItem x:Name="MenuCloseTab" Click="CloseTab_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+W">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="W"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Ouvrir" Click="Open_Click"
+                <MenuFlyoutItem x:Name="MenuOpen" Click="Open_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+O">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="O"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
-                <MenuFlyoutItem Text="Enregistrer" Click="Save_Click"
+                <MenuFlyoutItem x:Name="MenuSave" Click="Save_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+S">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="S"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
-                <MenuFlyoutItem Text="Enregistrer sous" Click="SaveAs_Click"
+                <MenuFlyoutItem x:Name="MenuSaveAs" Click="SaveAs_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+Shift+S">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control,Shift" Key="S"/>
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Enregistrer dans les notes" Click="SaveToNotes_Click"/>
+                <MenuFlyoutItem x:Name="MenuSaveToNotes" Click="SaveToNotes_Click"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Fermer" Click="CloseMenu_Click"/>
+                <MenuFlyoutItem x:Name="MenuClose" Click="CloseMenu_Click"/>
             </MenuBarItem>
 
-            <MenuBarItem Title="Modifier">
-                <MenuFlyoutItem Text="Annuler" Click="Undo_Click"
+            <MenuBarItem x:Name="EditMenu" Title="_">
+                <MenuFlyoutItem x:Name="MenuUndo" Click="Undo_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+Z"/>
-                <MenuFlyoutItem Text="R&#233;tablir" Click="Redo_Click"
+                <MenuFlyoutItem x:Name="MenuRedo" Click="Redo_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+Y"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Couper" Click="Cut_Click"
+                <MenuFlyoutItem x:Name="MenuCut" Click="Cut_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+X"/>
-                <MenuFlyoutItem Text="Copier" Click="Copy_Click"
+                <MenuFlyoutItem x:Name="MenuCopy" Click="Copy_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+C"/>
-                <MenuFlyoutItem Text="Coller" Click="Paste_Click"
+                <MenuFlyoutItem x:Name="MenuPaste" Click="Paste_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+V"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Tout s&#233;lectionner" Click="SelectAll_Click"
+                <MenuFlyoutItem x:Name="MenuSelectAll" Click="SelectAll_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+A"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Heure et date" Click="InsertDateTime_Click"
+                <MenuFlyoutItem x:Name="MenuDateTime" Click="InsertDateTime_Click"
                                 KeyboardAcceleratorTextOverride="F5">
                     <MenuFlyoutItem.KeyboardAccelerators>
                         <KeyboardAccelerator Key="F5"/>
@@ -125,23 +123,25 @@
                 </MenuFlyoutItem>
             </MenuBarItem>
 
-            <MenuBarItem Title="Affichage">
+            <MenuBarItem x:Name="ViewMenu" Title="_">
                 <ToggleMenuFlyoutItem x:Name="WordWrapItem"
-                                      Text="Retour automatique &#224; la ligne"
                                       IsChecked="True"
                                       Click="WordWrap_Click"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Zoom avant" Click="ZoomIn_Click"
+                <MenuFlyoutItem x:Name="MenuZoomIn" Click="ZoomIn_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl++"/>
-                <MenuFlyoutItem Text="Zoom arri&#232;re" Click="ZoomOut_Click"
+                <MenuFlyoutItem x:Name="MenuZoomOut" Click="ZoomOut_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+-"/>
-                <MenuFlyoutItem Text="Zoom par d&#233;faut" Click="ZoomReset_Click"
+                <MenuFlyoutItem x:Name="MenuZoomDefault" Click="ZoomReset_Click"
                                 KeyboardAcceleratorTextOverride="Ctrl+0"/>
                 <MenuFlyoutSeparator/>
                 <ToggleMenuFlyoutItem x:Name="AutoResizeItem"
-                                      Text="Redimensionnement auto"
                                       IsChecked="False"
                                       Click="AutoResize_Click"/>
+                <MenuFlyoutSeparator/>
+                <ToggleMenuFlyoutItem x:Name="SplitViewItem"
+                                      IsChecked="False"
+                                      Click="SplitView_Click"/>
             </MenuBarItem>
         </MenuBar>
 
@@ -154,14 +154,13 @@
 
                 <!-- Heading dropdown -->
                 <DropDownButton x:Name="HeadingButton" Content="Normal"
-                                Padding="10,4" FontSize="12" CornerRadius="4"
-                                ToolTipService.ToolTip="Style de paragraphe">
+                                Padding="10,4" FontSize="12" CornerRadius="4">
                     <DropDownButton.Flyout>
                         <MenuFlyout Placement="Bottom">
-                            <MenuFlyoutItem Text="Texte normal" Click="Heading_Normal_Click"/>
-                            <MenuFlyoutItem Text="Titre 1" Click="Heading_H1_Click"/>
-                            <MenuFlyoutItem Text="Titre 2" Click="Heading_H2_Click"/>
-                            <MenuFlyoutItem Text="Titre 3" Click="Heading_H3_Click"/>
+                            <MenuFlyoutItem x:Name="MenuHeadingNormal" Click="Heading_Normal_Click"/>
+                            <MenuFlyoutItem x:Name="MenuHeadingH1" Click="Heading_H1_Click"/>
+                            <MenuFlyoutItem x:Name="MenuHeadingH2" Click="Heading_H2_Click"/>
+                            <MenuFlyoutItem x:Name="MenuHeadingH3" Click="Heading_H3_Click"/>
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
@@ -174,7 +173,6 @@
                 <!-- Bold -->
                 <ToggleButton x:Name="BoldButton"
                               Padding="10,4" CornerRadius="4"
-                              ToolTipService.ToolTip="Gras (Ctrl+B)"
                               Click="Bold_Click">
                     <TextBlock Text="B" FontWeight="Bold" FontSize="13"/>
                 </ToggleButton>
@@ -182,7 +180,6 @@
                 <!-- Italic -->
                 <ToggleButton x:Name="ItalicButton"
                               Padding="10,4" CornerRadius="4"
-                              ToolTipService.ToolTip="Italique (Ctrl+I)"
                               Click="Italic_Click">
                     <TextBlock Text="I" FontStyle="Italic" FontSize="13"/>
                 </ToggleButton>
@@ -190,7 +187,6 @@
                 <!-- Strikethrough -->
                 <ToggleButton x:Name="StrikethroughButton"
                               Padding="10,4" CornerRadius="4"
-                              ToolTipService.ToolTip="Barr&#233;"
                               Click="Strikethrough_Click">
                     <TextBlock Text="S" TextDecorations="Strikethrough" FontSize="13"/>
                 </ToggleButton>
@@ -198,7 +194,6 @@
                 <!-- Underline -->
                 <ToggleButton x:Name="UnderlineButton"
                               Padding="10,4" CornerRadius="4"
-                              ToolTipService.ToolTip="Soulign&#233; (Ctrl+U)"
                               Click="Underline_Click">
                     <TextBlock Text="U" TextDecorations="Underline" FontSize="13"/>
                 </ToggleButton>
@@ -211,7 +206,6 @@
                 <!-- Link -->
                 <Button x:Name="LinkButton"
                         Padding="10,4" CornerRadius="4"
-                        ToolTipService.ToolTip="Ins&#233;rer un lien"
                         Click="Link_Click">
                     <FontIcon Glyph="&#xE71B;" FontSize="13"/>
                 </Button>
@@ -221,8 +215,14 @@
         </Border>
 
         <!-- Row 3: Editor / Markdown preview -->
-        <Grid Grid.Row="3">
+        <Grid x:Name="EditorGrid" Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="SplitColumn" Width="0"/>
+            </Grid.ColumnDefinitions>
+
             <RichEditBox x:Name="Editor"
+                         Grid.Column="0"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
                          FontSize="14"
@@ -241,12 +241,27 @@
                 </RichEditBox.Resources>
             </RichEditBox>
 
+            <!-- Split view: markdown preview panel (right half) -->
+            <Border x:Name="SplitPreviewPanel" Grid.Column="1"
+                    Visibility="Collapsed"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1,0,0,0">
+                <ScrollViewer Padding="16,12"
+                              VerticalScrollBarVisibility="Auto">
+                    <ctk:MarkdownTextBlock x:Name="SplitPreviewMarkdown"
+                                           IsTextSelectionEnabled="True"
+                                           UsePipeTables="True"
+                                           UseTaskLists="True"
+                                           UseAutoLinks="True"/>
+                </ScrollViewer>
+            </Border>
+
             <!-- Markdown rendered view (overlays editor when active) -->
             <ScrollViewer x:Name="PreviewScroll"
+                          Grid.ColumnSpan="2"
                           Padding="16,12"
                           VerticalScrollBarVisibility="Auto"
-                          Visibility="Collapsed"
-                          >
+                          Visibility="Collapsed">
                 <ctk:MarkdownTextBlock x:Name="PreviewMarkdown"
                                        IsTextSelectionEnabled="True"
                                        UsePipeTables="True"
@@ -265,10 +280,10 @@
                     <TextBlock x:Name="LineColText" Text="Ln 1, Col 1"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock x:Name="CharCountText" Text="0 caract&#232;re"
+                    <TextBlock x:Name="CharCountText"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="Texte enrichi"
+                    <TextBlock x:Name="RichTextLabel"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
@@ -276,8 +291,7 @@
                     <Button x:Name="MarkdownToggle"
                             Background="Transparent" BorderThickness="0"
                             Padding="6,2" CornerRadius="4"
-                            Click="MarkdownToggle_Click"
-                            ToolTipService.ToolTip="Basculer en aper&#231;u Markdown">
+                            Click="MarkdownToggle_Click">
                         <TextBlock x:Name="MarkdownToggleText" Text="Markdown"
                                    FontSize="11"
                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>

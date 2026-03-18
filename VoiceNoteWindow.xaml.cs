@@ -76,6 +76,8 @@ public sealed partial class VoiceNoteWindow : Window
             ? SttModels.Available.FirstOrDefault(m => m.Id == savedId && m.IsDownloaded)
             : null;
 
+        ApplyVoiceLocalization();
+
         if (savedModel != null)
             ShowRecordingPage(savedModel);
 
@@ -87,7 +89,20 @@ public sealed partial class VoiceNoteWindow : Window
         };
     }
 
-    // ── Settings persistence ─────────────────────────────────────
+    private void ApplyVoiceLocalization()
+    {
+        TitleBarText.Text = Lang.T("voice_note");
+        ToolTipService.SetToolTip(SettingsButton, Lang.T("tip_change_model"));
+        ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
+        ToolTipService.SetToolTip(VoiceCloseButton, Lang.T("tip_close"));
+        ChooseLanguageLabel.Text = Lang.T("choose_language");
+        FrenchLabel.Text = Lang.T("french");
+        SaveNoteButton.Content = Lang.T("save_note");
+        CancelDownloadButton.Content = Lang.T("cancel");
+        StatusText.Text = Lang.T("choose_language");
+    }
+
+    // ── Settings persistence ─────────────────────────────────
 
     private static string? LoadSavedModelId()
     {
@@ -128,7 +143,7 @@ public sealed partial class VoiceNoteWindow : Window
 
     private void ShowModelSelectionForLanguage(string langLabel)
     {
-        ModelSelectionTitle.Text = $"Mod\u00e8les disponibles \u2014 {langLabel}";
+        ModelSelectionTitle.Text = Lang.T("models_available", langLabel);
 
         var langFilter = _selectedLanguage == "fr" ? "Fran\u00e7ais" : "Anglais";
         var models = SttModels.Available
@@ -140,7 +155,7 @@ public sealed partial class VoiceNoteWindow : Window
 
         LanguageSelectionPage.Visibility = Visibility.Collapsed;
         ModelSelectionPage.Visibility = Visibility.Visible;
-        StatusText.Text = "S\u00e9lectionner un mod\u00e8le";
+        StatusText.Text = Lang.T("select_model");
     }
 
     // ── Model selection ──────────────────────────────────────────
@@ -160,7 +175,7 @@ public sealed partial class VoiceNoteWindow : Window
         _downloadCts?.Cancel();
         _downloadCts = new CancellationTokenSource();
         DownloadPanel.Visibility = Visibility.Visible;
-        DownloadStatusText.Text = $"T\u00e9l\u00e9chargement de {model.Name}...";
+        DownloadStatusText.Text = Lang.T("downloading", model.Name);
         DownloadProgress.IsIndeterminate = false;
         DownloadProgress.Value = 0;
 
@@ -171,7 +186,7 @@ public sealed partial class VoiceNoteWindow : Window
                 if (p < 0)
                 {
                     DownloadProgress.IsIndeterminate = true;
-                    DownloadStatusText.Text = "Extraction...";
+                    DownloadStatusText.Text = Lang.T("extracting");
                 }
                 else
                 {
@@ -184,7 +199,7 @@ public sealed partial class VoiceNoteWindow : Window
 
         try
         {
-            await ModelDownloader.DownloadAsync(model, progress, _downloadCts.Token);
+            await Task.Run(() => ModelDownloader.DownloadAsync(model, progress, _downloadCts.Token));
             DownloadPanel.Visibility = Visibility.Collapsed;
             SaveSelectedModelId(model.Id);
             ShowRecordingPage(model);
@@ -192,12 +207,12 @@ public sealed partial class VoiceNoteWindow : Window
         catch (OperationCanceledException)
         {
             DownloadPanel.Visibility = Visibility.Collapsed;
-            StatusText.Text = "T\u00e9l\u00e9chargement annul\u00e9";
+            StatusText.Text = Lang.T("download_cancelled");
         }
         catch (Exception ex)
         {
             DownloadPanel.Visibility = Visibility.Collapsed;
-            StatusText.Text = $"Erreur : {ex.Message}";
+            StatusText.Text = Lang.T("error_with_msg", ex.Message);
         }
     }
 
@@ -346,7 +361,7 @@ public sealed partial class VoiceNoteWindow : Window
 
         try
         {
-            await ModelDownloader.DownloadAsync(model, progress, _downloadCts.Token);
+            await Task.Run(() => ModelDownloader.DownloadAsync(model, progress, _downloadCts.Token));
             SaveSelectedModelId(model.Id);
             ShowRecordingPage(model);
         }

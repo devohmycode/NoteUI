@@ -25,6 +25,52 @@ public static class AppSettings
 
     public static string GetDefaultNotesFolder() => DefaultNotesFolder;
 
+    // ── Language ────────────────────────────────────────────────
+
+    public static string LoadLanguage()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("language", out var prop))
+                    return prop.GetString() ?? "en";
+            }
+        }
+        catch { }
+        return "en";
+    }
+
+    public static void SaveLanguage(string lang)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["language"] = lang });
+    }
+
+    // ── Slash commands ──────────────────────────────────────────
+
+    public static bool LoadSlashEnabled()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("slashEnabled", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return true;
+    }
+
+    public static void SaveSlashEnabled(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["slashEnabled"] = enabled });
+    }
+
     public static string LoadNotesFolder()
     {
         try

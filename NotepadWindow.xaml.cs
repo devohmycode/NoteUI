@@ -32,12 +32,13 @@ public sealed partial class NotepadWindow : Window
     private bool _autoResize;
     private int _autoResizeMinHeight = 200;
     private int _autoResizeMaxHeight = 900;
+    private bool _isSplitView;
 
     // ── Tabs ────────────────────────────────────────────────────
     private sealed class TabData
     {
         public string Id { get; } = Guid.NewGuid().ToString();
-        public string Title { get; set; } = "Sans titre";
+        public string Title { get; set; } = "";
         public string RtfContent { get; set; } = "";
         public string? FilePath { get; set; }
     }
@@ -77,6 +78,7 @@ public sealed partial class NotepadWindow : Window
         AppSettings.ApplyThemeToWindow(this, theme);
 
         _notesManager = notesManager;
+        ApplyNotepadLocalization();
 
         this.Closed += (_, _) =>
         {
@@ -84,20 +86,101 @@ public sealed partial class NotepadWindow : Window
         };
 
         AddNewTab();
+        // Focus editor on open
+        this.Activated += OnFirstActivated;
     }
 
-    // ── Tabs ────────────────────────────────────────────────────
+    private void OnFirstActivated(object sender, WindowActivatedEventArgs e)
+    {
+        this.Activated -= OnFirstActivated;
+        FocusEditorAtEnd();
+    }
+
+    private void FocusEditorAtEnd()
+    {
+        Editor.Document.GetText(TextGetOptions.None, out var text);
+        var len = text.TrimEnd('\r', '\n').Length;
+        Editor.Document.Selection.SetRange(len, len);
+        Editor.Focus(FocusState.Programmatic);
+    }
+
+    public void LoadNoteContent(string title, string rtfContent)
+    {
+        SaveCurrentTabContent();
+        var tab = new TabData { Title = title };
+        _tabs.Add(tab);
+        _activeTabId = tab.Id;
+        _switchingTab = true;
+        if (!string.IsNullOrEmpty(rtfContent) && rtfContent.StartsWith("{\\rtf", StringComparison.Ordinal))
+            Editor.Document.SetText(TextSetOptions.FormatRtf, rtfContent);
+        else
+            Editor.Document.SetText(TextSetOptions.None, rtfContent ?? "");
+        _switchingTab = false;
+        tab.RtfContent = rtfContent ?? "";
+        TitleText.Text = $"{title} \u2014 {Lang.T("notepad")}";
+        RefreshTabStrip();
+        FocusEditorAtEnd();
+    }
+
+    private void ApplyNotepadLocalization()
+    {
+        FileMenu.Title = Lang.T("file_menu");
+        MenuNew.Text = Lang.T("new_item");
+        MenuNewTab.Text = Lang.T("new_tab");
+        MenuCloseTab.Text = Lang.T("close_tab");
+        MenuOpen.Text = Lang.T("open");
+        MenuSave.Text = Lang.T("save");
+        MenuSaveAs.Text = Lang.T("save_as");
+        MenuSaveToNotes.Text = Lang.T("save_to_notes");
+        MenuClose.Text = Lang.T("close");
+
+        EditMenu.Title = Lang.T("edit_menu");
+        MenuUndo.Text = Lang.T("undo");
+        MenuRedo.Text = Lang.T("redo");
+        MenuCut.Text = Lang.T("cut");
+        MenuCopy.Text = Lang.T("copy");
+        MenuPaste.Text = Lang.T("paste");
+        MenuSelectAll.Text = Lang.T("select_all");
+        MenuDateTime.Text = Lang.T("datetime_menu");
+
+        ViewMenu.Title = Lang.T("view_menu");
+        WordWrapItem.Text = Lang.T("word_wrap");
+        MenuZoomIn.Text = Lang.T("zoom_in");
+        MenuZoomOut.Text = Lang.T("zoom_out");
+        MenuZoomDefault.Text = Lang.T("zoom_default");
+        AutoResizeItem.Text = Lang.T("auto_resize");
+        SplitViewItem.Text = Lang.T("split_view");
+
+        MenuHeadingNormal.Text = Lang.T("normal_text");
+        MenuHeadingH1.Text = Lang.T("heading1");
+        MenuHeadingH2.Text = Lang.T("heading2");
+        MenuHeadingH3.Text = Lang.T("heading3");
+
+        ToolTipService.SetToolTip(HeadingButton, Lang.T("paragraph_style"));
+        ToolTipService.SetToolTip(BoldButton, Lang.T("tip_bold"));
+        ToolTipService.SetToolTip(ItalicButton, Lang.T("tip_italic"));
+        ToolTipService.SetToolTip(StrikethroughButton, Lang.T("tip_strikethrough"));
+        ToolTipService.SetToolTip(UnderlineButton, Lang.T("tip_underline"));
+        ToolTipService.SetToolTip(LinkButton, Lang.T("link"));
+        ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
+        ToolTipService.SetToolTip(NpCloseButton, Lang.T("tip_close"));
+
+        RichTextLabel.Text = Lang.T("rich_text");
+        CharCountText.Text = Lang.T("char_count_many", 0);
+    }
+
+    // ── Tabs ──────────────────────────────────────────────────────
 
     private void AddNewTab()
     {
         SaveCurrentTabContent();
-        var tab = new TabData();
+        var tab = new TabData { Title = Lang.T("untitled") };
         _tabs.Add(tab);
         _activeTabId = tab.Id;
         _switchingTab = true;
         Editor.Document.SetText(TextSetOptions.None, "");
         _switchingTab = false;
-        TitleText.Text = "Sans titre \u2014 Bloc-notes";
+        TitleText.Text = $"{Lang.T("untitled")} \u2014 {Lang.T("notepad")}";
         RefreshTabStrip();
         Editor.Focus(FocusState.Programmatic);
     }
@@ -117,7 +200,7 @@ public sealed partial class NotepadWindow : Window
             Editor.Document.SetText(TextSetOptions.FormatRtf, tab.RtfContent);
         _switchingTab = false;
 
-        TitleText.Text = $"{tab.Title} \u2014 Bloc-notes";
+        TitleText.Text = $"{tab.Title} \u2014 {Lang.T("notepad")}";
         RefreshTabStrip();
         Editor.Focus(FocusState.Programmatic);
     }
@@ -149,6 +232,7 @@ public sealed partial class NotepadWindow : Window
         {
             var isActive = tab.Id == _activeTabId;
             var tabId = tab.Id;
+            var hasSavedName = !string.IsNullOrEmpty(tab.FilePath);
 
             var tabBtn = new Button
             {
@@ -156,25 +240,34 @@ public sealed partial class NotepadWindow : Window
                     ? (Brush)Application.Current.Resources["LayerFillColorDefaultBrush"]
                     : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(12, 6, 4, 6),
+                Padding = new Thickness(0),
                 CornerRadius = new CornerRadius(6, 6, 0, 0),
                 Height = 34,
+                Width = 120,
                 Opacity = isActive ? 1.0 : 0.7,
             };
 
-            var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            stack.Children.Add(new TextBlock
+            if (hasSavedName)
             {
-                Text = tab.Title,
-                FontSize = 12,
-                FontWeight = isActive
-                    ? Microsoft.UI.Text.FontWeights.SemiBold
-                    : Microsoft.UI.Text.FontWeights.Normal,
-                VerticalAlignment = VerticalAlignment.Center,
-                MaxWidth = 150,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
+                var titleBlock = new TextBlock
+                {
+                    Text = Path.GetFileNameWithoutExtension(tab.FilePath),
+                    FontSize = 12,
+                    FontWeight = isActive
+                        ? Microsoft.UI.Text.FontWeights.SemiBold
+                        : Microsoft.UI.Text.FontWeights.Normal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(8, 0, 0, 0),
+                };
+                Grid.SetColumn(titleBlock, 0);
+                grid.Children.Add(titleBlock);
+            }
 
             if (_tabs.Count > 1)
             {
@@ -188,6 +281,7 @@ public sealed partial class NotepadWindow : Window
                     Width = 22,
                     Height = 22,
                     VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Right,
                 };
                 closeBtn.Click += (_, _) =>
                 {
@@ -205,10 +299,11 @@ public sealed partial class NotepadWindow : Window
                         RefreshTabStrip();
                     }
                 };
-                stack.Children.Add(closeBtn);
+                Grid.SetColumn(closeBtn, 1);
+                grid.Children.Add(closeBtn);
             }
 
-            tabBtn.Content = stack;
+            tabBtn.Content = grid;
             tabBtn.Click += (_, _) => SwitchToTab(tabId);
             TabStrip.Children.Add(tabBtn);
         }
@@ -231,31 +326,23 @@ public sealed partial class NotepadWindow : Window
     {
         var tab = _tabs.Find(t => t.Id == _activeTabId);
         if (tab == null) return;
+        // Title bar text updates from content, but tab strip only shows filename after save
         Editor.Document.GetText(TextGetOptions.None, out var text);
         text = text.TrimEnd('\r', '\n');
-        if (string.IsNullOrWhiteSpace(text))
+        if (!string.IsNullOrEmpty(tab.FilePath))
         {
-            tab.Title = "Sans titre";
+            tab.Title = Path.GetFileNameWithoutExtension(tab.FilePath);
+        }
+        else if (string.IsNullOrWhiteSpace(text))
+        {
+            tab.Title = Lang.T("untitled");
         }
         else
         {
             var firstLine = text.Split('\r', '\n')[0].Trim();
             tab.Title = firstLine.Length > 30 ? firstLine[..30] + "\u2026" : firstLine;
         }
-        TitleText.Text = $"{tab.Title} \u2014 Bloc-notes";
-        // Update just the active tab's text without full rebuild
-        for (int i = 0; i < _tabs.Count; i++)
-        {
-            if (_tabs[i].Id == _activeTabId && i < TabStrip.Children.Count)
-            {
-                if (TabStrip.Children[i] is Button btn && btn.Content is StackPanel sp
-                    && sp.Children[0] is TextBlock tb)
-                {
-                    tb.Text = tab.Title;
-                }
-                break;
-            }
-        }
+        TitleText.Text = $"{tab.Title} \u2014 {Lang.T("notepad")}";
     }
 
     private void NewTab_Click(object sender, RoutedEventArgs e) => AddNewTab();
@@ -270,18 +357,22 @@ public sealed partial class NotepadWindow : Window
 
         Editor.Document.GetText(TextGetOptions.None, out var text);
         var count = text.TrimEnd('\r', '\n').Length;
-        CharCountText.Text = count == 1 ? "1 caract\u00e8re" : $"{count} caract\u00e8res";
+        CharCountText.Text = count == 1 ? Lang.T("char_count_one") : Lang.T("char_count_many", count);
 
         UpdateActiveTabTitle();
         AutoResizeWindow();
 
-        if (_slashFlyout == null)
+        // Update split preview in real-time
+        if (_isSplitView)
+            SplitPreviewMarkdown.Text = ConvertToMarkdown();
+
+        if (_slashFlyout == null && AppSettings.LoadSlashEnabled())
         {
             var slashPos = SlashCommands.DetectSlash(Editor);
             if (slashPos >= 0)
             {
                 var actions = SlashCommands.RichEditActions(Editor, slashPos, UpdateToolbarState);
-                actions.Add(new("\uE74E", "Enregistrer", ["Ctrl", "S"], () =>
+                actions.Add(new("\uE74E", Lang.T("save"), ["Ctrl", "S"], () =>
                 {
                     SlashCommands.DeleteSlash(Editor, slashPos);
                     Save_Click(null!, null!);
@@ -703,6 +794,33 @@ public sealed partial class NotepadWindow : Window
         if (_autoResize) AutoResizeWindow();
     }
 
+    private void SplitView_Click(object sender, RoutedEventArgs e)
+    {
+        _isSplitView = SplitViewItem.IsChecked;
+
+        if (_isSplitView)
+        {
+            if (_isMarkdownMode)
+            {
+                _isMarkdownMode = false;
+                PreviewScroll.Visibility = Visibility.Collapsed;
+                Editor.Visibility = Visibility.Visible;
+                MarkdownToggleText.Text = Lang.T("markdown");
+            }
+
+            SplitPreviewMarkdown.Text = ConvertToMarkdown();
+            SplitColumn.Width = new GridLength(1, GridUnitType.Star);
+            SplitPreviewPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SplitPreviewPanel.Visibility = Visibility.Collapsed;
+            SplitColumn.Width = new GridLength(0);
+        }
+
+        Editor.Focus(FocusState.Programmatic);
+    }
+
     private void AutoResizeWindow()
     {
         if (!_autoResize) return;
@@ -747,22 +865,20 @@ public sealed partial class NotepadWindow : Window
 
         if (_isMarkdownMode)
         {
-            // Switch to markdown rendered view
             PreviewMarkdown.Text = ConvertToMarkdown();
             Editor.Visibility = Visibility.Collapsed;
             PreviewScroll.Visibility = Visibility.Visible;
             AnimationHelper.FadeIn(PreviewScroll, 200);
-            MarkdownToggleText.Text = "Texte";
-            ToolTipService.SetToolTip(MarkdownToggle, "Revenir en mode \u00e9dition");
+            MarkdownToggleText.Text = Lang.T("text_mode");
+            ToolTipService.SetToolTip(MarkdownToggle, Lang.T("back_to_editor"));
         }
         else
         {
-            // Switch back to editor
             PreviewScroll.Visibility = Visibility.Collapsed;
             Editor.Visibility = Visibility.Visible;
             AnimationHelper.FadeIn(Editor, 200);
-            MarkdownToggleText.Text = "Markdown";
-            ToolTipService.SetToolTip(MarkdownToggle, "Basculer en aper\u00e7u Markdown");
+            MarkdownToggleText.Text = Lang.T("markdown");
+            ToolTipService.SetToolTip(MarkdownToggle, Lang.T("markdown_preview"));
             Editor.Focus(FocusState.Programmatic);
         }
     }

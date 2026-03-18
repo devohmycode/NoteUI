@@ -123,27 +123,35 @@ public static class ModelDownloader
     {
         Directory.CreateDirectory(model.ModelDir);
 
-        using var http = new HttpClient();
-        using var response = await http.GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var http = new HttpClient { Timeout = TimeSpan.FromHours(2) };
+        using var response = await http.GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        var totalBytes = response.Content.Headers.ContentLength ?? -1;
+        var totalBytes = response.Content.Headers.ContentLength ?? model.SizeMB * 1024 * 1024;
+        var lastProgressReport = DateTime.UtcNow;
+
+        void ReportProgress(long downloaded)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - lastProgressReport).TotalMilliseconds < 50) return;
+            lastProgressReport = now;
+            progress.Report((double)downloaded / totalBytes);
+        }
 
         if (model.Engine == SttEngine.Vosk)
         {
             var zipPath = Path.Combine(model.ModelDir, "model.zip");
-            await using (var stream = await response.Content.ReadAsStreamAsync(ct))
+            await using (var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
             await using (var file = File.Create(zipPath))
             {
                 var buffer = new byte[81920];
                 long downloaded = 0;
                 int read;
-                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+                while ((read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
                 {
-                    await file.WriteAsync(buffer.AsMemory(0, read), ct);
+                    await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
                     downloaded += read;
-                    if (totalBytes > 0)
-                        progress.Report((double)downloaded / totalBytes);
+                    ReportProgress(downloaded);
                 }
             }
 
@@ -169,17 +177,16 @@ public static class ModelDownloader
         else
         {
             var binPath = Path.Combine(model.ModelDir, $"{model.Id}.bin");
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             await using var file = File.Create(binPath);
             var buffer = new byte[81920];
             long downloaded = 0;
             int read;
-            while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+            while ((read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
             {
-                await file.WriteAsync(buffer.AsMemory(0, read), ct);
+                await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
                 downloaded += read;
-                if (totalBytes > 0)
-                    progress.Report((double)downloaded / totalBytes);
+                ReportProgress(downloaded);
             }
         }
 

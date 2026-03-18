@@ -46,12 +46,24 @@ public sealed partial class AcrylicSettingsWindow : Window
         AppSettings.ApplyToWindow(this, settings, ref _acrylicController, ref _configSource);
 
         LoadSettings(settings);
+        ApplyAcrylicLocalization();
 
         this.Closed += (_, _) =>
         {
             _acrylicController?.Dispose();
             AppSettings.SaveBackdropSettings(BuildSettings());
         };
+    }
+
+    private void ApplyAcrylicLocalization()
+    {
+        AcrylicTitle.Text = Lang.T("acrylic_custom_title");
+        ToolTipService.SetToolTip(AcrylicCloseButton, Lang.T("tip_close"));
+        TintOpacityLabel.Text = Lang.T("tint_opacity");
+        LuminosityLabel.Text = Lang.T("luminosity");
+        TintColorLabel.Text = Lang.T("tint_color");
+        FallbackColorLabel.Text = Lang.T("fallback_color");
+        StyleLabel.Text = Lang.T("style");
     }
 
     public void SetPosition(int x, int y)

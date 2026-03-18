@@ -8,7 +8,8 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 
 ### Notes
 - Create, edit, delete, and duplicate notes
-- Rich text editing (bold, italic, underline, strikethrough, bullet lists)
+- Rich text editing (bold, italic, underline, strikethrough, bullet lists, headings)
+- Slash commands (`/bold`, `/h1`, `/date`, `/time`, …) for quick formatting
 - 14 color themes (Yellow, Green, Mint, Teal, Blue, Lavender, Purple, Pink, Coral, Orange, Peach, Sand, Gray, Charcoal)
 - Pin notes to the top of the list
 - Search and filter by title or content
@@ -28,12 +29,20 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - Visual bell indicator on tasks with active reminders
 - Automatic cleanup after notification
 
+### Notepad
+- Multi-tab text editor with add, close, and close-all operations
+- File operations: Open, Save, Save As, Save to Notes
+- Undo / Redo, Cut, Copy, Paste, Select All
+- Date/Time insertion and slash commands support
+- View options: word wrap toggle, zoom in/out
+- Markdown mode toggle
+
 ### Voice Notes
 - Speech-to-text recording with real-time transcription
 - Two recognition engines: **Vosk** (lightweight) and **Whisper** (OpenAI, higher accuracy)
 - French and English language support
 - In-app model download with progress tracking
-- Live waveform visualization during recording
+- Live audio level visualization during recording
 - Transcription is saved as a regular note
 
 #### Available Models
@@ -45,16 +54,31 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 | Whisper base | Whisper | 140 MB | FR, EN |
 | Whisper small | Whisper | 460 MB | FR, EN |
 
+### OCR & Screen Capture
+- **OCR**: full-screen region capture overlay with drag-and-drop selection, text extraction via Windows OCR engine
+- **Screenshot**: triggers Windows Snipping Tool (Win+Shift+S), auto-scales and inserts the image into the current note
+- Auto-detects language (French / English) from the system profile
+
 ### Cloud Sync
-- **Firebase Realtime Database** with email/password and Google Sign-In
+- **Firebase Realtime Database** with email/password and Google Sign-In (OAuth 2.0 PKCE)
 - **WebDAV / Nextcloud** with username/password authentication
+- Notes and settings sync across devices
 - Automatic conflict resolution (most recent version wins)
+- Automatic token refresh
 - Auto-reconnect on startup from saved credentials
+
+### Localization
+- Full English and French UI (200+ translated strings)
+- Dynamic language switching from settings
+- Language preference synced to cloud
 
 ### Customization
 - Light, Dark, and System theme
-- Acrylic backdrop with custom tint color, opacity, and luminosity controls
+- Backdrop: Acrylic, Mica, MicaAlt, Custom Acrylic, or None
+- Custom Acrylic editor with live preview (tint color, opacity, luminosity)
 - Configurable notes storage folder
+- Keyboard shortcut rebinding
+- Slash commands toggle (enable/disable)
 - Always-on-top (pin) for any window
 
 ### UI & Animations
@@ -106,14 +130,20 @@ NoteUI/
   App.xaml.cs                    # Application entry point
   MainWindow.xaml/.cs            # Main window (note list, search, settings)
   NoteWindow.xaml/.cs            # Note editor / task list editor
+  NotepadWindow.xaml/.cs         # Multi-tab text editor
   VoiceNoteWindow.xaml/.cs       # Voice recording and transcription
-  NotesManager.cs                # Note data model and persistence
+  NotesManager.cs                # Note data model, persistence, and cloud sync
   SpeechRecognitionService.cs    # Vosk/Whisper STT engines and model downloader
   ReminderService.cs             # Background reminder checker and toast notifications
-  FirebaseSync.cs                # Firebase Realtime Database sync
+  FirebaseSync.cs                # Firebase Realtime Database sync and auth
   WebDavSync.cs                  # WebDAV/Nextcloud sync
-  AppSettings.cs                 # Settings persistence (theme, backdrop, cloud)
-  ActionPanel.cs                 # Flyout menus and color picker
+  AppSettings.cs                 # Settings persistence (theme, backdrop, cloud, language)
+  ActionPanel.cs                 # Settings panel, flyout menus, and color picker
+  SlashCommands.cs               # Slash command detection and execution
+  Lang.cs                        # Localization system (EN/FR)
+  OcrService.cs                  # Windows OCR text extraction
+  OcrCaptureOverlay.cs           # Full-screen region capture overlay
+  ScreenCaptureService.cs        # Screenshot insertion via Snipping Tool
   AnimationHelper.cs             # GPU Composition animations
   AcrylicSettingsWindow.xaml/.cs # Custom acrylic backdrop editor
   WindowHelper.cs                # Borderless window utilities
@@ -135,6 +165,7 @@ NoteUI/
 - **Runtime**: .NET 8 (self-contained, win-x64)
 - **Audio**: NAudio 2.2.1
 - **Speech-to-text**: Vosk 0.3.38, Whisper.net 1.7.4
+- **OCR**: Windows.Media.Ocr (built-in Windows OCR engine)
 - **Cloud**: Firebase REST API, WebDAV protocol
 - **Auth**: Firebase email/password, Google OAuth2 PKCE
 - **Animations**: Windows.UI.Composition (DirectX GPU-accelerated)
