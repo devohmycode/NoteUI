@@ -1452,6 +1452,9 @@ public static class ActionPanel
             PlaceholderText = Lang.T("ai_custom_url"),
             FontSize = 12,
             Margin = new Thickness(10, 0, 10, 4),
+            MaxWidth = 230,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Left,
         };
         panel.Children.Add(urlBox);
 
