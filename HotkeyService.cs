@@ -77,6 +77,7 @@ internal sealed class HotkeyService : IDisposable
     [
         new("show", Lang.T("shortcut_show"), Modifiers.Ctrl | Modifiers.Alt, 0x4E), // Ctrl+Alt+N
         new("new_note", Lang.T("shortcut_new_note"), Modifiers.Ctrl, 0x4E), // Ctrl+N
+        new("flyout_back", Lang.T("shortcut_flyout_back"), Modifiers.Ctrl, 0x50), // Ctrl+P
     ];
 
     public static List<ShortcutEntry> Load()
@@ -88,8 +89,17 @@ internal sealed class HotkeyService : IDisposable
                 var json = File.ReadAllText(SettingsPath);
                 var entries = JsonSerializer.Deserialize<List<ShortcutEntryDto>>(json);
                 if (entries != null)
-                    return entries.Select(e => new ShortcutEntry(e.Name, e.DisplayLabel,
+                {
+                    var loaded = entries.Select(e => new ShortcutEntry(e.Name, e.DisplayLabel,
                         (Modifiers)e.Modifiers, e.VirtualKey)).ToList();
+                    // Merge with defaults: add any new entries not present in saved file
+                    foreach (var def in GetDefaults())
+                    {
+                        if (!loaded.Any(e => e.Name == def.Name))
+                            loaded.Add(def);
+                    }
+                    return loaded;
+                }
             }
         }
         catch { }
@@ -118,6 +128,13 @@ internal sealed class HotkeyService : IDisposable
         public string DisplayLabel { get; set; } = "";
         public uint Modifiers { get; set; }
         public uint VirtualKey { get; set; }
+    }
+
+    public static ShortcutEntry LoadFlyoutBack()
+    {
+        var all = Load();
+        return all.FirstOrDefault(e => e.Name == "flyout_back")
+            ?? new("flyout_back", Lang.T("shortcut_flyout_back"), Modifiers.Ctrl, 0x50);
     }
 
     public static string FormatShortcut(Modifiers mods, uint vk)

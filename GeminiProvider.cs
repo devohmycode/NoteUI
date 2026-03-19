@@ -7,7 +7,7 @@ namespace NoteUI;
 public class GeminiProvider : ICloudAiProvider
 {
     public string Id => "gemini";
-    public string Name => "Google Gemini";
+    public string Name => "Google";
 
     public async Task<List<AiManager.ModelInfo>> ListModelsAsync(string apiKey, CancellationToken ct)
     {

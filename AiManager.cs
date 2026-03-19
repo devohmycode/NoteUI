@@ -23,6 +23,7 @@ public class AiManager
 
     public class AiSettings
     {
+        public bool IsEnabled { get; set; } = true;
         public float Temperature { get; set; } = 0.7f;
         public int MaxTokens { get; set; } = 2048;
         public int ContextSize { get; set; } = 2048;
@@ -31,6 +32,40 @@ public class AiManager
         public string LastProviderId { get; set; } = "";
         public string LastModelId { get; set; } = "";
         public string LastLocalModelFileName { get; set; } = "";
+        public Dictionary<string, string> Prompts { get; set; } = new();
+        public List<CustomPrompt> CustomPrompts { get; set; } = new();
+    }
+
+    public class CustomPrompt
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+        public string Title { get; set; } = "";
+        public string Instruction { get; set; } = "";
+    }
+
+    public static readonly (string Key, string DefaultPrompt)[] PromptDefinitions =
+    [
+        ("ai_improve_writing",       "Improve writing quality, clarity, and flow while preserving meaning."),
+        ("ai_fix_grammar_spelling",  "Correct grammar, spelling, punctuation, and agreement mistakes."),
+        ("ai_tone_professional",     "Rewrite in a professional and formal tone."),
+        ("ai_tone_friendly",         "Rewrite in a friendly and approachable tone."),
+        ("ai_tone_concise",          "Rewrite in a concise tone with shorter, clearer sentences."),
+    ];
+
+    public string GetPrompt(string key)
+    {
+        if (Settings.Prompts.TryGetValue(key, out var custom) && !string.IsNullOrWhiteSpace(custom))
+            return custom;
+        foreach (var (k, def) in PromptDefinitions)
+            if (k == key) return def;
+        return key;
+    }
+
+    public static string GetDefaultPrompt(string key)
+    {
+        foreach (var (k, def) in PromptDefinitions)
+            if (k == key) return def;
+        return key;
     }
 
     // ── Paths ──
@@ -66,9 +101,7 @@ public class AiManager
     public static readonly LocalModel[] PredefinedModels =
     [
         new("Gemma 2 2B",      "bartowski/gemma-2-2b-it-GGUF",                     "gemma-2-2b-it-Q4_K_M.gguf",                 "~1.6 GB"),
-        new("Phi-3 Mini 3.8B", "microsoft/Phi-3-mini-4k-instruct-gguf",            "Phi-3-mini-4k-instruct-q4.gguf",            "~2.4 GB"),
         new("Llama 3.2 3B",    "bartowski/Llama-3.2-3B-Instruct-GGUF",             "Llama-3.2-3B-Instruct-Q4_K_M.gguf",         "~2 GB"),
-        new("Mistral 7B",      "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",           "mistral-7b-instruct-v0.2.Q4_K_M.gguf",      "~4.4 GB"),
         new("Llama 3.1 8B",    "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",        "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",    "~4.9 GB"),
     ];
 
@@ -310,6 +343,18 @@ public class AiManager
         _model = null;
         _modelParams = null;
         _loadedModelPath = null;
+    }
+
+    public bool IsEnabled => Settings.IsEnabled;
+
+    public void DisableAll()
+    {
+        UnloadModel();
+        Settings.IsEnabled = false;
+        Settings.LastProviderId = "";
+        Settings.LastModelId = "";
+        Settings.LastLocalModelFileName = "";
+        SaveSettings();
     }
 
     public bool IsModelLoaded => _model != null;

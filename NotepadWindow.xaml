@@ -283,6 +283,13 @@
                 Padding="12,5">
             <Grid>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Spacing="20">
+                    <Button x:Name="AiButton"
+                            Background="Transparent" BorderThickness="0"
+                            Padding="6,2" CornerRadius="4"
+                            Click="AiMenu_Click">
+                        <FontIcon Glyph="&#xE99A;" FontSize="11"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Button>
                     <TextBlock x:Name="LineColText" Text="Ln 1, Col 1"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

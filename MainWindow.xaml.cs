@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private TextExpansionService? _textExpansion;
 
     private AiManager? _aiManager;
+    private HotkeyService? _hotkeyService;
 
     private enum ViewMode { Notes, Favorites, Tags, TagFilter, Archive }
     private ViewMode _currentView = ViewMode.Notes;
@@ -86,6 +87,9 @@ public sealed partial class MainWindow : Window
         };
         _trayIcon.ExitRequested += ExitApplication;
 
+        // Global hotkeys
+        RegisterGlobalHotkeys();
+
         // Hide to tray instead of closing
         AppWindow.Closing += (_, args) =>
         {
@@ -101,6 +105,7 @@ public sealed partial class MainWindow : Window
             _textExpansion?.Stop();
             _reminderService?.Dispose();
             ReminderService.Shutdown();
+            _hotkeyService?.Dispose();
             _acrylicController?.Dispose();
             _trayIcon?.Dispose();
             Environment.Exit(0);
@@ -182,10 +187,14 @@ public sealed partial class MainWindow : Window
             : ThemeHelper.CardBackground;
         var cardBg = new SolidColorBrush(cardColor);
 
-        var outer = new Border
+        var outer = new Button
         {
             Background = cardBg,
             CornerRadius = new CornerRadius(8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
         };
 
         var stack = new StackPanel();
@@ -195,7 +204,7 @@ public sealed partial class MainWindow : Window
         {
             stack.Children.Add(new Border
             {
-                Height = 3,
+                Height = 4,
                 Background = new SolidColorBrush(color),
                 CornerRadius = new CornerRadius(8, 8, 0, 0),
             });
@@ -283,10 +292,10 @@ public sealed partial class MainWindow : Window
         }
 
         stack.Children.Add(content);
-        outer.Child = stack;
+        outer.Content = stack;
 
         var noteId = note.Id;
-        outer.Tapped += (_, _) => OpenNote(noteId);
+        outer.Click += (_, _) => OpenNote(noteId);
         outer.RightTapped += (s, e) =>
         {
             e.Handled = true;
@@ -375,6 +384,7 @@ public sealed partial class MainWindow : Window
         var parentRect = new NoteWindow.ParentRect(pos.X, pos.Y, sz.Width, sz.Height);
         var window = new NoteWindow(_notes, note, parentRect);
         window.SetSnippetManager(_snippetManager);
+        window.RefreshAiUi();
         _openNoteWindows.Add(window);
         window.NoteChanged += () =>
         {
@@ -417,6 +427,7 @@ public sealed partial class MainWindow : Window
 
         _notepadWindow = new NotepadWindow(_notes);
         _notepadWindow.SetSnippetManager(_snippetManager);
+        _notepadWindow.RefreshAiUi();
         _notepadWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
         _notepadWindow.Closed += (_, _) => _notepadWindow = null;
         _notepadWindow.Activate();
@@ -511,7 +522,8 @@ public sealed partial class MainWindow : Window
                 AppSettings.SaveSlashEnabled(enabled);
                 _ = _notes.SyncSettingsToFirebase();
             },
-            onShowAi: f => ShowAiInSettings(f));
+            onShowAi: f => ShowAiInSettings(f),
+            onShowPrompts: f => ShowPromptsInSettings(f));
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
@@ -581,7 +593,66 @@ public sealed partial class MainWindow : Window
         _aiManager.Load();
 
         ActionPanel.ShowAiPanel(flyout, _aiManager, Content.XamlRoot,
+            onBack: () => Settings_Click(SettingsButton, new RoutedEventArgs()),
+            onAiStateChanged: RefreshAiUiAcrossOpenWindows);
+    }
+
+    private void ShowPromptsInSettings(Flyout flyout)
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+
+        ActionPanel.ShowPromptsPanel(flyout, _aiManager,
             onBack: () => Settings_Click(SettingsButton, new RoutedEventArgs()));
+    }
+
+    private void RefreshAiUiAcrossOpenWindows()
+    {
+        foreach (var window in _openNoteWindows.ToList())
+        {
+            try { window.RefreshAiUi(); } catch { }
+        }
+
+        try { _notepadWindow?.RefreshAiUi(); } catch { }
+    }
+
+    private void RegisterGlobalHotkeys()
+    {
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _hotkeyService?.Dispose();
+        _hotkeyService = new HotkeyService(hwnd);
+
+        var shortcuts = HotkeyService.Load();
+        foreach (var s in shortcuts)
+        {
+            switch (s.Name)
+            {
+                case "show":
+                    _hotkeyService.Register(HotkeyService.HOTKEY_SHOW,
+                        s.Modifiers, s.VirtualKey, () =>
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                if (AppWindow.IsVisible)
+                                    AppWindow.Hide();
+                                else
+                                    AppWindow.Show(true);
+                            });
+                        });
+                    break;
+                case "new_note":
+                    _hotkeyService.Register(HotkeyService.HOTKEY_NEW_NOTE,
+                        s.Modifiers, s.VirtualKey, () =>
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                AppWindow.Show(true);
+                                AddButton_Click(this, new RoutedEventArgs());
+                            });
+                        });
+                    break;
+            }
+        }
     }
 
     private void ShowShortcutsInSettings(Flyout flyout)
@@ -591,6 +662,7 @@ public sealed partial class MainWindow : Window
             onSave: entries =>
             {
                 HotkeyService.Save(entries);
+                RegisterGlobalHotkeys();
             },
             onBack: () =>
             {

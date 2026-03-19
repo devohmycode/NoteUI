@@ -196,7 +196,7 @@ public static class ActionPanel
         Action<Flyout>? onShowShortcuts = null,
         string? currentLanguage = null, bool slashEnabled = true,
         Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null,
-        Action<Flyout>? onShowAi = null)
+        Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -385,6 +385,14 @@ public static class ActionPanel
             aiBtn.Tag = Lang.T("ai_label") + " IA AI OpenAI Claude Gemini GGUF";
             allButtons.Add(aiBtn);
             panel.Children.Add(aiBtn);
+
+            if (onShowPrompts != null)
+            {
+                var promptsBtn = CreateCheckItem(Lang.T("ai_prompts"), false, () => onShowPrompts(flyout));
+                promptsBtn.Tag = Lang.T("ai_prompts") + " prompt IA AI";
+                allButtons.Add(promptsBtn);
+                panel.Children.Add(promptsBtn);
+            }
         }
 
         // Voice model section
@@ -632,38 +640,7 @@ public static class ActionPanel
         XamlRoot xamlRoot,
         Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild)
     {
-        var panel = new StackPanel { Spacing = 0 };
-
-        // Back button + header
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var backBtn = new Button
-        {
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(6, 4, 6, 4),
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
-        };
-        backBtn.Click += (_, _) => onBack();
-        Grid.SetColumn(backBtn, 0);
-
-        var header = new TextBlock
-        {
-            Text = Lang.T("voice_model"),
-            FontSize = 12,
-            Opacity = 0.6,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0)
-        };
-        Grid.SetColumn(header, 1);
-
-        headerRow.Children.Add(backBtn);
-        headerRow.Children.Add(header);
-        panel.Children.Add(headerRow);
-        panel.Children.Add(CreateSeparator());
+        var panel = CreateSubPanelWithHeader(Lang.T("voice_model"), onBack);
 
         // French models
         panel.Children.Add(new TextBlock
@@ -1054,38 +1031,7 @@ public static class ActionPanel
     internal static void ShowShortcutsPanel(Flyout flyout, List<HotkeyService.ShortcutEntry> shortcuts,
         Action<List<HotkeyService.ShortcutEntry>> onSave, Action onBack)
     {
-        var panel = new StackPanel { Spacing = 0 };
-
-        // Back + header
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var backBtn = new Button
-        {
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(6, 4, 6, 4),
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
-        };
-        backBtn.Click += (_, _) => onBack();
-        Grid.SetColumn(backBtn, 0);
-
-        var header = new TextBlock
-        {
-            Text = Lang.T("shortcuts_label"),
-            FontSize = 12,
-            Opacity = 0.6,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0)
-        };
-        Grid.SetColumn(header, 1);
-
-        headerRow.Children.Add(backBtn);
-        headerRow.Children.Add(header);
-        panel.Children.Add(headerRow);
-        panel.Children.Add(CreateSeparator());
+        var panel = CreateSubPanelWithHeader(Lang.T("shortcuts_label"), onBack);
 
         var edited = shortcuts.ToList();
 
@@ -1100,6 +1046,7 @@ public static class ActionPanel
             {
                 "show" => Lang.T("shortcut_show"),
                 "new_note" => Lang.T("shortcut_new_note"),
+                "flyout_back" => Lang.T("shortcut_flyout_back"),
                 _ => entry.DisplayLabel
             };
             row.Children.Add(new TextBlock
@@ -1146,40 +1093,9 @@ public static class ActionPanel
 
     // ── AI Panel ──────────────────────────────────────────────
 
-    internal static void ShowAiPanel(Flyout flyout, AiManager aiManager, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack)
+    internal static void ShowAiPanel(Flyout flyout, AiManager aiManager, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack, Action? onAiStateChanged = null)
     {
-        var panel = new StackPanel { Spacing = 0 };
-
-        // Back + header
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var backBtn = new Button
-        {
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(6, 4, 6, 4),
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
-        };
-        backBtn.Click += (_, _) => onBack();
-        Grid.SetColumn(backBtn, 0);
-
-        var header = new TextBlock
-        {
-            Text = Lang.T("ai_section"),
-            FontSize = 12,
-            Opacity = 0.6,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0)
-        };
-        Grid.SetColumn(header, 1);
-
-        headerRow.Children.Add(backBtn);
-        headerRow.Children.Add(header);
-        panel.Children.Add(headerRow);
-        panel.Children.Add(CreateSeparator());
+        var panel = CreateSubPanelWithHeader(Lang.T("ai_section"), onBack);
 
         // ── Cloud providers section ──
         panel.Children.Add(new TextBlock
@@ -1260,7 +1176,7 @@ public static class ActionPanel
                 if (nowHasKey)
                 {
                     ShowAiModelsPanel(flyout, aiManager, p, xamlRoot, () =>
-                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack));
+                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged), onAiStateChanged);
                 }
             };
 
@@ -1272,9 +1188,9 @@ public static class ActionPanel
             // If key already exists, add a button to browse models
             if (hasKey)
             {
-                var browseBtn = CreateCheckItem($"{provider.Name} — {Lang.T("ai_select_model")}", false, () =>
+                var browseBtn = CreateCheckItem(Lang.T("ai_select_model"), false, () =>
                     ShowAiModelsPanel(flyout, aiManager, p, xamlRoot, () =>
-                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack)));
+                        ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged), onAiStateChanged));
                 browseBtn.Tag = provider.Name + " " + Lang.T("ai_select_model");
                 panel.Children.Add(browseBtn);
             }
@@ -1291,79 +1207,233 @@ public static class ActionPanel
             Margin = new Thickness(10, 8, 0, 4)
         });
 
-        // Installed models
-        var installed = aiManager.GetInstalledModels();
-        if (installed.Count > 0)
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = Lang.T("ai_models_installed"),
-                FontSize = 11,
-                Opacity = 0.45,
-                Margin = new Thickness(10, 4, 0, 2)
-            });
-            foreach (var model in installed)
-            {
-                var isLoaded = model.FileName == aiManager.LoadedModelFileName;
-                var modelBtn = new Button
-                {
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Background = isLoaded
-                        ? (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"]
-                        : new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-                    BorderThickness = new Thickness(0),
-                    Padding = new Thickness(10, 5, 10, 5),
-                    CornerRadius = new CornerRadius(5),
-                };
-                var modelGrid = new Grid { ColumnSpacing = 8 };
-                modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                var modelName = new TextBlock { Text = model.Name, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(modelName, 0);
-                var modelSize = new TextBlock
-                {
-                    Text = model.Size,
-                    FontSize = 11,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                Grid.SetColumn(modelSize, 1);
-                modelGrid.Children.Add(modelName);
-                modelGrid.Children.Add(modelSize);
-                modelBtn.Content = modelGrid;
-
-                var fn = model.FileName;
-                modelBtn.Click += (_, _) =>
-                {
-                    aiManager.Settings.LastLocalModelFileName = fn;
-                    aiManager.SaveSettings();
-                    flyout.Hide();
-                };
-                panel.Children.Add(modelBtn);
-            }
-        }
-
-        // Available predefined models
-        panel.Children.Add(new TextBlock
-        {
-            Text = Lang.T("ai_models_available"),
-            FontSize = 11,
-            Opacity = 0.45,
-            Margin = new Thickness(10, 6, 0, 2)
-        });
+        // All predefined models (installed + available) in one list
         foreach (var model in AiManager.PredefinedModels)
         {
-            if (model.IsInstalled) continue;
             var m = model;
-            var btn = CreateCheckItem($"{model.Name}  ({model.Size})", false, async () =>
+            var isInstalled = model.IsInstalled;
+            var isActive = isInstalled
+                && string.IsNullOrEmpty(aiManager.Settings.LastProviderId)
+                && aiManager.Settings.LastLocalModelFileName == model.FileName
+                && aiManager.Settings.IsEnabled;
+            var modelBtn = new Button
             {
-                flyout.Hide();
-                await DownloadLocalModelWithDialog(aiManager, m, xamlRoot);
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 5, 10, 5),
+                CornerRadius = new CornerRadius(5),
+            };
+            var modelGrid = new Grid { ColumnSpacing = 8 };
+            modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var modelTextPanel = new StackPanel { Spacing = 1 };
+            modelTextPanel.Children.Add(new TextBlock
+            {
+                Text = model.Name,
+                FontSize = 12,
+                FontWeight = isActive
+                    ? Microsoft.UI.Text.FontWeights.SemiBold
+                    : Microsoft.UI.Text.FontWeights.Normal,
             });
-            btn.Tag = model.Name + " GGUF local";
-            panel.Children.Add(btn);
+            if (isActive)
+            {
+                modelTextPanel.Children.Add(new TextBlock
+                {
+                    Text = Lang.T("model_active"),
+                    FontSize = 11,
+                    Opacity = 0.85,
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95)),
+                });
+            }
+            Grid.SetColumn(modelTextPanel, 0);
+            var modelSize = new TextBlock
+            {
+                Text = model.Size,
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(modelSize, 1);
+            modelGrid.Children.Add(modelTextPanel);
+            modelGrid.Children.Add(modelSize);
+
+            if (isInstalled)
+            {
+                var check = new FontIcon
+                {
+                    Glyph = "\uE73E",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(check, 2);
+                modelGrid.Children.Add(check);
+            }
+            else
+            {
+                var downloadIcon = new FontIcon
+                {
+                    Glyph = "\uE896",
+                    FontSize = 12,
+                    Opacity = 0.45,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(downloadIcon, 2);
+                modelGrid.Children.Add(downloadIcon);
+            }
+
+            modelBtn.Content = modelGrid;
+
+            var fn = model.FileName;
+            if (isInstalled)
+            {
+                // Left click: select model
+                modelBtn.Click += (_, _) =>
+                {
+                    aiManager.Settings.IsEnabled = true;
+                    aiManager.Settings.LastLocalModelFileName = fn;
+                    aiManager.Settings.LastProviderId = "";
+                    aiManager.Settings.LastModelId = "";
+                    aiManager.SaveSettings();
+                    onAiStateChanged?.Invoke();
+                    flyout.Hide();
+                };
+
+                // Right click: delete option
+                var deleteFlyout = new MenuFlyout();
+                var deleteItem = new MenuFlyoutItem
+                {
+                    Text = Lang.T("delete"),
+                    Icon = new FontIcon { Glyph = "\uE74D" },
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+                };
+                deleteItem.Click += (_, _) =>
+                {
+                    aiManager.DeleteModel(fn);
+                    onAiStateChanged?.Invoke();
+                    // Refresh the panel without closing the flyout
+                    ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged);
+                };
+                deleteFlyout.Items.Add(deleteItem);
+                modelBtn.ContextFlyout = deleteFlyout;
+            }
+            else
+            {
+                // Left click: download model
+                modelBtn.Click += async (_, _) =>
+                {
+                    await DownloadLocalModelWithDialog(aiManager, m, xamlRoot, onAiStateChanged);
+                    // Refresh the panel without closing the flyout
+                    ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged);
+                };
+
+                // Right click: download option
+                var downloadFlyout = new MenuFlyout();
+                var downloadItem = new MenuFlyoutItem
+                {
+                    Text = Lang.T("ai_download"),
+                    Icon = new FontIcon { Glyph = "\uE896" },
+                };
+                downloadItem.Click += async (_, _) =>
+                {
+                    await DownloadLocalModelWithDialog(aiManager, m, xamlRoot, onAiStateChanged);
+                    // Refresh the panel without closing the flyout
+                    ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged);
+                };
+                downloadFlyout.Items.Add(downloadItem);
+                modelBtn.ContextFlyout = downloadFlyout;
+            }
+
+            panel.Children.Add(modelBtn);
+        }
+
+        // Custom installed models (non-predefined)
+        var customInstalled = aiManager.GetInstalledModels()
+            .Where(m => !AiManager.PredefinedModels.Any(p => p.FileName == m.FileName));
+        foreach (var model in customInstalled)
+        {
+            var isActive = string.IsNullOrEmpty(aiManager.Settings.LastProviderId)
+                && aiManager.Settings.LastLocalModelFileName == model.FileName
+                && aiManager.Settings.IsEnabled;
+            var modelBtn = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 5, 10, 5),
+                CornerRadius = new CornerRadius(5),
+            };
+            var modelGrid = new Grid { ColumnSpacing = 8 };
+            modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            modelGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var modelTextPanel = new StackPanel { Spacing = 1 };
+            modelTextPanel.Children.Add(new TextBlock
+            {
+                Text = model.Name,
+                FontSize = 12,
+                FontWeight = isActive
+                    ? Microsoft.UI.Text.FontWeights.SemiBold
+                    : Microsoft.UI.Text.FontWeights.Normal,
+            });
+            if (isActive)
+            {
+                modelTextPanel.Children.Add(new TextBlock
+                {
+                    Text = Lang.T("model_active"),
+                    FontSize = 11,
+                    Opacity = 0.85,
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95)),
+                });
+            }
+            Grid.SetColumn(modelTextPanel, 0);
+            var modelSize = new TextBlock
+            {
+                Text = model.Size,
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(modelSize, 1);
+            modelGrid.Children.Add(modelTextPanel);
+            modelGrid.Children.Add(modelSize);
+            modelBtn.Content = modelGrid;
+
+            var fn = model.FileName;
+            modelBtn.Click += (_, _) =>
+            {
+                aiManager.Settings.IsEnabled = true;
+                aiManager.Settings.LastLocalModelFileName = fn;
+                aiManager.Settings.LastProviderId = "";
+                aiManager.Settings.LastModelId = "";
+                aiManager.SaveSettings();
+                onAiStateChanged?.Invoke();
+                flyout.Hide();
+            };
+
+            // Right click: delete
+            var deleteFlyout = new MenuFlyout();
+            var deleteItem = new MenuFlyoutItem
+            {
+                Text = Lang.T("delete"),
+                Icon = new FontIcon { Glyph = "\uE74D" },
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            };
+            deleteItem.Click += (_, _) =>
+            {
+                aiManager.DeleteModel(fn);
+                onAiStateChanged?.Invoke();
+                ShowAiPanel(flyout, aiManager, xamlRoot, onBack, onAiStateChanged);
+            };
+            deleteFlyout.Items.Add(deleteItem);
+            modelBtn.ContextFlyout = deleteFlyout;
+
+            panel.Children.Add(modelBtn);
         }
 
         panel.Children.Add(CreateSeparator());
@@ -1398,10 +1468,23 @@ public static class ActionPanel
                 return;
 
             flyout.Hide();
-            await DownloadCustomModelWithDialog(aiManager, url, fileName, xamlRoot);
+            await DownloadCustomModelWithDialog(aiManager, url, fileName, xamlRoot, onAiStateChanged);
         });
         downloadBtn.Tag = Lang.T("ai_download") + " GGUF custom";
         panel.Children.Add(downloadBtn);
+
+        panel.Children.Add(CreateSeparator());
+
+        var disableBtn = CreateButton(
+            new ActionItem("\uE74D", Lang.T("ai_disable_all"), [], () => { }, IsDestructive: true),
+            () =>
+            {
+                aiManager.DisableAll();
+                onAiStateChanged?.Invoke();
+                flyout.Hide();
+            });
+        disableBtn.Tag = Lang.T("ai_disable_all");
+        panel.Children.Add(disableBtn);
 
         flyout.Content = panel;
     }
@@ -1409,40 +1492,9 @@ public static class ActionPanel
     // ── AI Models sub-panel (cloud provider models) ──
 
     private static async void ShowAiModelsPanel(Flyout flyout, AiManager aiManager,
-        ICloudAiProvider provider, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack)
+        ICloudAiProvider provider, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action onBack, Action? onAiStateChanged = null)
     {
-        var panel = new StackPanel { Spacing = 0 };
-
-        // Back + header
-        var headerRow = new Grid();
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var backBtn = new Button
-        {
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(6, 4, 6, 4),
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
-        };
-        backBtn.Click += (_, _) => onBack();
-        Grid.SetColumn(backBtn, 0);
-
-        var header = new TextBlock
-        {
-            Text = provider.Name,
-            FontSize = 12,
-            Opacity = 0.6,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0)
-        };
-        Grid.SetColumn(header, 1);
-
-        headerRow.Children.Add(backBtn);
-        headerRow.Children.Add(header);
-        panel.Children.Add(headerRow);
-        panel.Children.Add(CreateSeparator());
+        var panel = CreateSubPanelWithHeader(provider.Name, onBack);
 
         // Loading indicator
         var loadingText = new TextBlock
@@ -1477,9 +1529,12 @@ public static class ActionPanel
                     && provider.Id == aiManager.Settings.LastProviderId;
                 var modelBtn = CreateCheckItem(model.Name, isSelected, () =>
                 {
+                    aiManager.Settings.IsEnabled = true;
                     aiManager.Settings.LastProviderId = provider.Id;
                     aiManager.Settings.LastModelId = model.Id;
+                    aiManager.Settings.LastLocalModelFileName = "";
                     aiManager.SaveSettings();
+                    onAiStateChanged?.Invoke();
                     flyout.Hide();
                 });
                 modelBtn.Tag = model.Name;
@@ -1492,9 +1547,268 @@ public static class ActionPanel
         }
     }
 
+    // ── Keyboard back helper ──
+
+    private static void AddBackKeyNavigation(StackPanel panel, Action onBack)
+    {
+        var shortcut = HotkeyService.LoadFlyoutBack();
+        var mods = Windows.System.VirtualKeyModifiers.None;
+        if (shortcut.Modifiers.HasFlag(HotkeyService.Modifiers.Ctrl))
+            mods |= Windows.System.VirtualKeyModifiers.Control;
+        if (shortcut.Modifiers.HasFlag(HotkeyService.Modifiers.Alt))
+            mods |= Windows.System.VirtualKeyModifiers.Menu;
+        if (shortcut.Modifiers.HasFlag(HotkeyService.Modifiers.Shift))
+            mods |= Windows.System.VirtualKeyModifiers.Shift;
+
+        var acc = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
+        {
+            Key = (Windows.System.VirtualKey)shortcut.VirtualKey,
+            Modifiers = mods,
+        };
+        acc.Invoked += (_, args) => { args.Handled = true; onBack(); };
+        panel.KeyboardAccelerators.Add(acc);
+    }
+
+    private static StackPanel CreateSubPanelWithHeader(string title, Action onBack)
+    {
+        var panel = new StackPanel { Spacing = 0 };
+        AddBackKeyNavigation(panel, onBack);
+
+        var headerRow = new Grid();
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var backBtn = new Button
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 4, 6, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE72B", FontSize = 12 }
+        };
+        backBtn.Click += (_, _) => onBack();
+        Grid.SetColumn(backBtn, 0);
+
+        var header = new TextBlock
+        {
+            Text = title,
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        Grid.SetColumn(header, 1);
+
+        headerRow.Children.Add(backBtn);
+        headerRow.Children.Add(header);
+        panel.Children.Add(headerRow);
+        panel.Children.Add(CreateSeparator());
+
+        return panel;
+    }
+
+    // ── Prompts sub-panel ──
+
+    internal static void ShowPromptsPanel(Flyout flyout, AiManager aiManager, Action onBack)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("ai_prompts"), onBack);
+
+        // Built-in prompts
+        foreach (var (key, _) in AiManager.PromptDefinitions)
+        {
+            var k = key;
+            var btn = CreateCheckItem(Lang.T(key), false, () =>
+                ShowPromptEditPanel(flyout, aiManager, k, () =>
+                    ShowPromptsPanel(flyout, aiManager, onBack)));
+            btn.Tag = Lang.T(key);
+            panel.Children.Add(btn);
+        }
+
+        // Custom prompts
+        foreach (var cp in aiManager.Settings.CustomPrompts)
+        {
+            var prompt = cp;
+            var btn = CreateCheckItem(prompt.Title, false, () =>
+                ShowPromptEditPanel(flyout, aiManager, prompt.Id, () =>
+                    ShowPromptsPanel(flyout, aiManager, onBack)));
+            btn.Tag = prompt.Title;
+
+            // Right-click: Edit / Delete
+            var ctxFlyout = new MenuFlyout();
+            var editItem = new MenuFlyoutItem
+            {
+                Text = Lang.T("ai_prompt_edit"),
+                Icon = new FontIcon { Glyph = "\uE70F" },
+            };
+            editItem.Click += (_, _) =>
+                ShowCustomPromptFormPanel(flyout, aiManager, prompt, () =>
+                    ShowPromptsPanel(flyout, aiManager, onBack));
+            ctxFlyout.Items.Add(editItem);
+
+            var deleteItem = new MenuFlyoutItem
+            {
+                Text = Lang.T("delete"),
+                Icon = new FontIcon { Glyph = "\uE74D" },
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            };
+            deleteItem.Click += (_, _) =>
+            {
+                aiManager.Settings.CustomPrompts.Remove(prompt);
+                aiManager.SaveSettings();
+                ShowPromptsPanel(flyout, aiManager, onBack);
+            };
+            ctxFlyout.Items.Add(deleteItem);
+            btn.ContextFlyout = ctxFlyout;
+
+            panel.Children.Add(btn);
+        }
+
+        panel.Children.Add(CreateSeparator());
+
+        // Add button
+        var addBtn = CreateButton(
+            new ActionItem("\uE710", Lang.T("ai_prompt_add"), [], () => { }),
+            () => ShowCustomPromptFormPanel(flyout, aiManager, null, () =>
+                ShowPromptsPanel(flyout, aiManager, onBack)));
+        addBtn.Tag = Lang.T("ai_prompt_add");
+        panel.Children.Add(addBtn);
+
+        flyout.Content = panel;
+    }
+
+    private static void ShowPromptEditPanel(Flyout flyout, AiManager aiManager, string promptKey, Action onBack)
+    {
+        // Check if it's a custom prompt
+        var custom = aiManager.Settings.CustomPrompts.FirstOrDefault(p => p.Id == promptKey);
+        if (custom != null)
+        {
+            ShowCustomPromptFormPanel(flyout, aiManager, custom, onBack);
+            return;
+        }
+
+        var panel = CreateSubPanelWithHeader(Lang.T(promptKey), onBack);
+
+        var currentValue = aiManager.GetPrompt(promptKey);
+
+        var textBox = new TextBox
+        {
+            Text = currentValue,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            MinHeight = 100,
+            MaxHeight = 160,
+            MaxWidth = 260,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(10, 8, 10, 8),
+        };
+        panel.Children.Add(textBox);
+
+        var buttonsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(10, 0, 10, 8)
+        };
+
+        var validateBtn = new Button
+        {
+            Content = Lang.T("ai_prompt_validate"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        validateBtn.Click += (_, _) =>
+        {
+            var newValue = textBox.Text?.Trim() ?? "";
+            var defaultVal = AiManager.GetDefaultPrompt(promptKey);
+            if (string.IsNullOrWhiteSpace(newValue) || newValue == defaultVal)
+                aiManager.Settings.Prompts.Remove(promptKey);
+            else
+                aiManager.Settings.Prompts[promptKey] = newValue;
+            aiManager.SaveSettings();
+            onBack();
+        };
+
+        var cancelBtn = new Button { Content = Lang.T("cancel") };
+        cancelBtn.Click += (_, _) => onBack();
+
+        buttonsPanel.Children.Add(validateBtn);
+        buttonsPanel.Children.Add(cancelBtn);
+        panel.Children.Add(buttonsPanel);
+
+        flyout.Content = panel;
+    }
+
+    private static void ShowCustomPromptFormPanel(Flyout flyout, AiManager aiManager, AiManager.CustomPrompt? existing, Action onBack)
+    {
+        var isEdit = existing != null;
+        var panel = CreateSubPanelWithHeader(
+            isEdit ? existing!.Title : Lang.T("ai_prompt_add"), onBack);
+
+        var form = new StackPanel { Spacing = 8, Margin = new Thickness(10, 8, 10, 8) };
+
+        var titleBox = new TextBox
+        {
+            Header = Lang.T("ai_prompt_title"),
+            Text = existing?.Title ?? "",
+            FontSize = 12,
+            MaxWidth = 260,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        form.Children.Add(titleBox);
+
+        var contentBox = new TextBox
+        {
+            Header = Lang.T("ai_prompt_content"),
+            Text = existing?.Instruction ?? "",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            MinHeight = 80,
+            MaxHeight = 140,
+            MaxWidth = 260,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        form.Children.Add(contentBox);
+
+        var saveBtn = new Button
+        {
+            Content = Lang.T("save"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        saveBtn.Click += (_, _) =>
+        {
+            var title = titleBox.Text?.Trim() ?? "";
+            var instruction = contentBox.Text?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(instruction)) return;
+
+            if (isEdit)
+            {
+                existing!.Title = title;
+                existing.Instruction = instruction;
+            }
+            else
+            {
+                aiManager.Settings.CustomPrompts.Add(new AiManager.CustomPrompt
+                {
+                    Title = title,
+                    Instruction = instruction,
+                });
+            }
+            aiManager.SaveSettings();
+            onBack();
+        };
+        form.Children.Add(saveBtn);
+
+        panel.Children.Add(form);
+        flyout.Content = panel;
+    }
+
     // ── Download helpers ──
 
-    private static async Task DownloadLocalModelWithDialog(AiManager aiManager, AiManager.LocalModel model, Microsoft.UI.Xaml.XamlRoot xamlRoot)
+    private static async Task DownloadLocalModelWithDialog(AiManager aiManager, AiManager.LocalModel model, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action? onAiStateChanged = null)
     {
         using var cts = new CancellationTokenSource();
         var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar { Minimum = 0, Maximum = 100, Value = 0 };
@@ -1554,8 +1868,12 @@ public static class ActionPanel
 
         if (success)
         {
+            aiManager.Settings.IsEnabled = true;
             aiManager.Settings.LastLocalModelFileName = model.FileName;
+            aiManager.Settings.LastProviderId = "";
+            aiManager.Settings.LastModelId = "";
             aiManager.SaveSettings();
+            onAiStateChanged?.Invoke();
         }
         else if (errorMsg != null)
         {
@@ -1570,7 +1888,7 @@ public static class ActionPanel
         }
     }
 
-    private static async Task DownloadCustomModelWithDialog(AiManager aiManager, string url, string fileName, Microsoft.UI.Xaml.XamlRoot xamlRoot)
+    private static async Task DownloadCustomModelWithDialog(AiManager aiManager, string url, string fileName, Microsoft.UI.Xaml.XamlRoot xamlRoot, Action? onAiStateChanged = null)
     {
         using var cts = new CancellationTokenSource();
         var progressBar = new Microsoft.UI.Xaml.Controls.ProgressBar { Minimum = 0, Maximum = 100, Value = 0 };
@@ -1628,8 +1946,12 @@ public static class ActionPanel
 
         if (success)
         {
+            aiManager.Settings.IsEnabled = true;
             aiManager.Settings.LastLocalModelFileName = fileName;
+            aiManager.Settings.LastProviderId = "";
+            aiManager.Settings.LastModelId = "";
             aiManager.SaveSettings();
+            onAiStateChanged?.Invoke();
         }
         else if (errorMsg != null)
         {

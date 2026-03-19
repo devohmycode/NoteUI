@@ -64,8 +64,69 @@ internal static class SlashCommands
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle();
 
+        var panel = BuildPanel(Lang.T("commands"), actions, flyout);
+
+        flyout.Opened += (_, _) => FocusSearchBox(panel);
+        if (onClosed != null) flyout.Closed += (_, _) => onClosed();
+
+        flyout.Content = panel;
+        flyout.ShowAt(target, new FlyoutShowOptions { Position = position });
+        return flyout;
+    }
+
+    /// <summary>Open a new flyout for a submenu (Format / IA). Esc or light-dismiss calls onEscBack to reopen parent.</summary>
+    internal static Flyout ShowSubFlyout(FrameworkElement target, string header,
+        IReadOnlyList<ActionPanel.ActionItem> actions, Action? onClosed = null, Action? onEscBack = null)
+    {
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle();
+
+        bool actionExecuted = false;
+
+        // Wrap actions to track if user clicked an action vs dismissed with Esc
+        var wrapped = new List<ActionPanel.ActionItem>(actions.Count);
+        foreach (var a in actions)
+        {
+            var orig = a;
+            wrapped.Add(new(orig.Glyph, orig.Label, orig.Keys,
+                () => { actionExecuted = true; orig.Handler(); },
+                orig.Icon, orig.IsDestructive));
+        }
+
+        var panel = BuildPanel(header, wrapped, flyout);
+
+        flyout.Opened += (_, _) => FocusSearchBox(panel);
+        flyout.Closed += (_, _) =>
+        {
+            if (!actionExecuted && onEscBack != null)
+                onEscBack();
+            else
+                onClosed?.Invoke();
+        };
+
+        flyout.Content = panel;
+
+        if (target is RichEditBox editor)
+        {
+            editor.Document.Selection.GetRect(PointOptions.ClientCoordinates, out var rect, out _);
+            var pos = new Windows.Foundation.Point(
+                Math.Max(0, rect.X),
+                Math.Max(0, rect.Y + rect.Height) + 4);
+            flyout.ShowAt(target, new FlyoutShowOptions { Position = pos });
+        }
+        else
+        {
+            flyout.ShowAt(target);
+        }
+
+        return flyout;
+    }
+
+    /// <summary>Builds a panel with header, search box, and action buttons.</summary>
+    private static StackPanel BuildPanel(string header, IReadOnlyList<ActionPanel.ActionItem> actions, Flyout flyout)
+    {
         var panel = new StackPanel { Spacing = 0 };
-        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("commands")));
+        panel.Children.Add(ActionPanel.CreateHeader(header));
 
         var searchBox = new TextBox
         {
@@ -101,12 +162,19 @@ internal static class SlashCommands
             }
         };
 
-        flyout.Opened += (_, _) => searchBox.Focus(FocusState.Programmatic);
-        if (onClosed != null) flyout.Closed += (_, _) => onClosed();
+        return panel;
+    }
 
-        flyout.Content = panel;
-        flyout.ShowAt(target, new FlyoutShowOptions { Position = position });
-        return flyout;
+    private static void FocusSearchBox(StackPanel panel)
+    {
+        foreach (var child in panel.Children)
+        {
+            if (child is TextBox tb)
+            {
+                tb.Focus(FocusState.Programmatic);
+                break;
+            }
+        }
     }
 
     /// <summary>Common formatting slash-commands for a RichEditBox.</summary>
