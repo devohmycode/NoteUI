@@ -29,11 +29,13 @@ public sealed partial class NotepadWindow : Window
     private Windows.Graphics.PointInt32 _dragStartPos;
 
     private Flyout? _slashFlyout;
+    private bool _slashUndoing;
     private bool _isMarkdownMode;
     private bool _autoResize;
     private int _autoResizeMinHeight = 200;
     private int _autoResizeMaxHeight = 900;
     private bool _isSplitView;
+    private AiManager? _aiManager;
 
     // ── Tabs ────────────────────────────────────────────────────
     private sealed class TabData
@@ -83,6 +85,8 @@ public sealed partial class NotepadWindow : Window
 
         _notesManager = notesManager;
         ApplyNotepadLocalization();
+        RefreshAiUi();
+        Editor.ContextRequested += Editor_ContextRequested;
 
         this.Closed += (_, _) =>
         {
@@ -169,6 +173,7 @@ public sealed partial class NotepadWindow : Window
         ToolTipService.SetToolTip(LinkButton, Lang.T("link"));
         ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
         ToolTipService.SetToolTip(NpCloseButton, Lang.T("tip_close"));
+        ToolTipService.SetToolTip(AiButton, Lang.T("tip_ai"));
 
         RichTextLabel.Text = Lang.T("rich_text");
         CharCountText.Text = Lang.T("char_count_many", 0);
@@ -358,7 +363,7 @@ public sealed partial class NotepadWindow : Window
 
     private void Editor_TextChanged(object sender, RoutedEventArgs e)
     {
-        if (_switchingTab) return;
+        if (_switchingTab || _slashUndoing) return;
 
         Editor.Document.GetText(TextGetOptions.None, out var text);
         var count = text.TrimEnd('\r', '\n').Length;
@@ -376,23 +381,85 @@ public sealed partial class NotepadWindow : Window
             var slashPos = SlashCommands.DetectSlash(Editor);
             if (slashPos >= 0)
             {
-                var actions = SlashCommands.RichEditActions(Editor, slashPos, UpdateToolbarState);
-                actions.Add(new("\uE74E", Lang.T("save"), ["Ctrl", "S"], () =>
+                // Check if "/" replaced a selection — undo to restore it
+                _slashUndoing = true;
+                Editor.Document.Undo();
+                _slashUndoing = false;
+
+                var sel = Editor.Document.Selection;
+                bool hadSelection = sel.StartPosition != sel.EndPosition;
+
+                if (hadSelection)
+                {
+                    // Selection restored by undo — no slash to delete
+                    slashPos = -1;
+                }
+                else
+                {
+                    // Normal "/" — redo to put it back
+                    _slashUndoing = true;
+                    Editor.Document.Redo();
+                    _slashUndoing = false;
+                }
+
+                var formatActions = SlashCommands.RichEditActions(Editor, slashPos, UpdateToolbarState);
+                var aiActions = IsAiEnabled() ? CreateSlashAiActions(slashPos) : null;
+
+                var topActions = new List<ActionPanel.ActionItem>();
+
+                void ReopenMain() =>
+                    _slashFlyout = SlashCommands.Show(Editor, topActions, () => _slashFlyout = null);
+
+                // Format → opens a new flyout with formatting options
+                topActions.Add(new("\uE8D2", Lang.T("format"), [], () =>
+                {
+                    _slashFlyout = SlashCommands.ShowSubFlyout(Editor,
+                        Lang.T("format"), formatActions,
+                        onClosed: () => _slashFlyout = null,
+                        onEscBack: ReopenMain);
+                }));
+
+                // IA → opens a new flyout with AI options
+                if (aiActions != null)
+                {
+                    topActions.Add(new("\uE99A", Lang.T("ai_section"), [], () =>
+                    {
+                        _slashFlyout = SlashCommands.ShowSubFlyout(Editor,
+                            Lang.T("ai_section"), aiActions,
+                            onClosed: () => _slashFlyout = null,
+                            onEscBack: ReopenMain);
+                    }));
+                }
+
+                // DateTime
+                topActions.Add(new("\uE787", Lang.T("datetime"), ["F5"], () =>
+                {
+                    SlashCommands.DeleteSlash(Editor, slashPos);
+                    Editor.Document.Selection.TypeText(DateTime.Now.ToString("HH:mm dd/MM/yyyy"));
+                    Editor.Focus(FocusState.Programmatic);
+                    UpdateToolbarState();
+                }));
+
+                // Save
+                topActions.Add(new("\uE74E", Lang.T("save"), ["Ctrl", "S"], () =>
                 {
                     SlashCommands.DeleteSlash(Editor, slashPos);
                     Save_Click(null!, null!);
                     Editor.Focus(FocusState.Programmatic);
                 }));
+
+                // Snippet
                 if (_snippetManager != null)
                 {
                     var sp = slashPos;
-                    actions.Add(new("\uE943", Lang.T("snippet"), [], () =>
+                    topActions.Add(new("\uE943", Lang.T("snippet"), [], () =>
                     {
                         SlashCommands.DeleteSlash(Editor, sp);
                         Snippet_Click(null!, null!);
                     }));
                 }
-                _slashFlyout = SlashCommands.Show(Editor, actions, () => _slashFlyout = null);
+
+                _slashFlyout = SlashCommands.Show(Editor, topActions, () => _slashFlyout = null);
             }
         }
     }
@@ -401,6 +468,295 @@ public sealed partial class NotepadWindow : Window
     {
         UpdateLineCol();
         UpdateToolbarState();
+    }
+
+    private void Editor_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        var selection = Editor.Document.Selection;
+        selection.GetText(TextGetOptions.None, out var selectedText);
+        if (string.IsNullOrWhiteSpace(selectedText))
+            return;
+
+        e.Handled = true;
+        ShowAiActionsFlyout(Editor);
+    }
+
+    private void AiMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        ShowAiActionsFlyout(AiButton);
+    }
+
+    private void ShowAiActionsFlyout(FrameworkElement target)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        var flyout = ActionPanel.Create(Lang.T("ai_section"), CreateAiActions());
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft;
+        flyout.Opened += (_, _) => AnimateAiFlyoutItems(flyout);
+        flyout.ShowAt(target);
+    }
+
+    private string AiPrompt(string key) => _aiManager?.GetPrompt(key) ?? AiManager.GetDefaultPrompt(key);
+
+    private List<ActionPanel.ActionItem> CreateAiActions()
+    {
+        var list = new List<ActionPanel.ActionItem>
+        {
+            new("\uE8D2", Lang.T("ai_improve_writing"), [],
+                () => _ = ApplyAiToSelectionAsync(AiPrompt("ai_improve_writing"))),
+            new("\uE8FD", Lang.T("ai_fix_grammar_spelling"), [],
+                () => _ = ApplyAiToSelectionAsync(AiPrompt("ai_fix_grammar_spelling"))),
+            new("\uE8D3", Lang.T("ai_tone_professional"), [],
+                () => _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_professional"))),
+            new("\uE8D4", Lang.T("ai_tone_friendly"), [],
+                () => _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_friendly"))),
+            new("\uE8D5", Lang.T("ai_tone_concise"), [],
+                () => _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_concise"))),
+        };
+        if (_aiManager != null)
+            foreach (var cp in _aiManager.Settings.CustomPrompts)
+            {
+                var instruction = cp.Instruction;
+                list.Add(new("\uE945", cp.Title, [],
+                    () => _ = ApplyAiToSelectionAsync(instruction)));
+            }
+        return list;
+    }
+
+    private List<ActionPanel.ActionItem> CreateSlashAiActions(int slashPos)
+    {
+        var list = new List<ActionPanel.ActionItem>
+        {
+            new("\uE8D2", Lang.T("ai_improve_writing"), [],
+                () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(AiPrompt("ai_improve_writing")); }),
+            new("\uE8FD", Lang.T("ai_fix_grammar_spelling"), [],
+                () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(AiPrompt("ai_fix_grammar_spelling")); }),
+            new("\uE8D3", Lang.T("ai_tone_professional"), [],
+                () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_professional")); }),
+            new("\uE8D4", Lang.T("ai_tone_friendly"), [],
+                () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_friendly")); }),
+            new("\uE8D5", Lang.T("ai_tone_concise"), [],
+                () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(AiPrompt("ai_tone_concise")); }),
+        };
+        if (_aiManager != null)
+            foreach (var cp in _aiManager.Settings.CustomPrompts)
+            {
+                var instruction = cp.Instruction;
+                list.Add(new("\uE945", cp.Title, [],
+                    () => { SlashCommands.DeleteSlash(Editor, slashPos); _ = ApplyAiToSelectionAsync(instruction); }));
+            }
+        return list;
+    }
+
+    private static void AnimateAiFlyoutItems(Flyout flyout)
+    {
+        if (flyout.Content is not Panel panel) return;
+        var delay = 0;
+        foreach (var child in panel.Children)
+        {
+            if (child is Button btn)
+            {
+                AnimationHelper.FadeSlideIn(btn, delay, 180);
+                delay += 24;
+            }
+        }
+    }
+
+    private async Task ApplyAiToSelectionAsync(string instruction)
+    {
+        var selection = Editor.Document.Selection;
+        var start = selection.StartPosition;
+        var end = selection.EndPosition;
+        if (start >= end)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_select_text_first"));
+            return;
+        }
+
+        selection.GetText(TextGetOptions.None, out var selectedText);
+        if (string.IsNullOrWhiteSpace(selectedText))
+        {
+            await ShowAiMessageAsync(Lang.T("ai_select_text_first"));
+            return;
+        }
+
+        var rewritten = await TransformSelectionWithAiAsync(selectedText, instruction);
+        if (string.IsNullOrWhiteSpace(rewritten))
+            return;
+
+        var range = Editor.Document.GetRange(start, end);
+        range.SetText(TextSetOptions.None, rewritten);
+        Editor.Document.Selection.SetRange(start, start + rewritten.Length);
+        Editor.Focus(FocusState.Programmatic);
+    }
+
+    private async Task<string?> TransformSelectionWithAiAsync(string selectedText, string instruction)
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        if (!_aiManager.IsEnabled)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
+            return null;
+        }
+
+        var prompt = BuildAiPrompt(selectedText, instruction);
+        var history = new List<AiManager.ChatMessage>();
+        var output = new StringBuilder();
+
+        try
+        {
+            if (TryGetActiveCloud(out var provider, out var apiKey, out var modelId))
+            {
+                await foreach (var token in provider.StreamChatAsync(
+                    apiKey,
+                    modelId,
+                    _aiManager.Settings.SystemPrompt,
+                    history,
+                    prompt,
+                    _aiManager.Settings.Temperature,
+                    _aiManager.Settings.MaxTokens))
+                {
+                    output.Append(token);
+                }
+            }
+            else if (TryGetActiveLocal(out var localModelFile))
+            {
+                await _aiManager.LoadModelAsync(localModelFile);
+                await foreach (var token in _aiManager.ChatLocalAsync(prompt, history))
+                    output.Append(token);
+            }
+            else
+            {
+                await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_transform_failed", ex.Message));
+            return null;
+        }
+
+        var text = NormalizeAiOutput(output.ToString());
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            await ShowAiMessageAsync(Lang.T("ai_transform_empty"));
+            return null;
+        }
+        return text;
+    }
+
+    private bool TryGetActiveCloud(out ICloudAiProvider provider, out string apiKey, out string modelId)
+    {
+        provider = default!;
+        apiKey = "";
+        modelId = "";
+
+        var providerId = _aiManager?.Settings.LastProviderId ?? "";
+        modelId = _aiManager?.Settings.LastModelId ?? "";
+        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(modelId))
+            return false;
+
+        var p = _aiManager!.GetProvider(providerId);
+        if (p == null)
+            return false;
+
+        apiKey = _aiManager.GetApiKey(providerId);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return false;
+
+        provider = p;
+        return true;
+    }
+
+    private bool TryGetActiveLocal(out string localModelFile)
+    {
+        localModelFile = _aiManager?.Settings.LastLocalModelFileName ?? "";
+        if (string.IsNullOrWhiteSpace(localModelFile))
+            return false;
+
+        var modelPath = Path.Combine(AiManager.ModelsDir, localModelFile);
+        return File.Exists(modelPath);
+    }
+
+    private static string BuildAiPrompt(string selectedText, string instruction) =>
+        $"""
+        You are rewriting user text.
+        Task: {instruction}
+
+        Rules:
+        - IMPORTANT: Reply in the SAME language as the original text. If the text is in French, reply in French. If in English, reply in English.
+        - Preserve the original meaning and facts.
+        - Return ONLY the rewritten text. No title, no explanation, no bullet list, no prefix like "assistant" or "Here is".
+
+        Text:
+        <<<
+        {selectedText}
+        >>>
+        """;
+
+    private static string NormalizeAiOutput(string raw)
+    {
+        var text = raw.Trim();
+
+        // Strip "assistant" role prefix emitted by some local models (Llama, etc.)
+        if (text.StartsWith("assistant", StringComparison.OrdinalIgnoreCase))
+        {
+            text = text["assistant".Length..].TrimStart(':', ' ', '\n', '\r');
+        }
+
+        if (text.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = text.IndexOf('\n');
+            if (firstLineBreak >= 0)
+            {
+                text = text[(firstLineBreak + 1)..];
+                var closingFence = text.LastIndexOf("```", StringComparison.Ordinal);
+                if (closingFence >= 0)
+                    text = text[..closingFence];
+            }
+        }
+
+        text = text.Trim();
+        if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+            text = text[1..^1];
+        return text.Trim();
+    }
+
+    public void RefreshAiUi()
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        if (!_aiManager.IsEnabled)
+            _aiManager.UnloadModel();
+        AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private bool IsAiEnabled()
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        return _aiManager.IsEnabled;
+    }
+
+    private async Task ShowAiMessageAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = Lang.T("ai_section"),
+            Content = message,
+            CloseButtonText = Lang.T("ok"),
+            XamlRoot = RootGrid.XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     private void UpdateLineCol()

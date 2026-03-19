@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
@@ -32,6 +33,7 @@ public sealed partial class NoteWindow : Window
     private Windows.Graphics.PointInt32 _dragStartPos;
 
     private Flyout? _slashFlyout;
+    private bool _slashUndoing;
 
     private bool _autoResize;
     private const int AutoResizeMin = 150;
@@ -41,6 +43,7 @@ public sealed partial class NoteWindow : Window
     // Voice dictation
     private ISpeechRecognizer? _voiceRecognizer;
     private bool _isVoiceRecording;
+    private AiManager? _aiManager;
 
     public string NoteId => _note.Id;
 
@@ -110,6 +113,9 @@ public sealed partial class NoteWindow : Window
         TitleText.Text = note.Title;
         UpdateMenuIcon();
         ApplyNoteLocalization();
+        RefreshAiUi();
+        NoteEditor.ContextRequested += NoteEditor_ContextRequested;
+        TaskNoteEditor.ContextRequested += TaskNoteEditor_ContextRequested;
 
         if (note.NoteType == "tasklist")
         {
@@ -141,6 +147,7 @@ public sealed partial class NoteWindow : Window
         ToolTipService.SetToolTip(NoteCloseButton, Lang.T("tip_close"));
         ToolTipService.SetToolTip(FormatButton, Lang.T("tip_format"));
         ToolTipService.SetToolTip(VoiceButton, Lang.T("tip_voice"));
+        ToolTipService.SetToolTip(AiButton, Lang.T("tip_ai"));
         ToolTipService.SetToolTip(ColorButton, Lang.T("tip_color"));
         TaskNoteEditor.PlaceholderText = Lang.T("notes_placeholder");
     }
@@ -297,7 +304,7 @@ public sealed partial class NoteWindow : Window
 
     private void TaskNoteEditor_TextChanged(object sender, RoutedEventArgs e)
     {
-        if (_suppressTextChanged) return;
+        if (_suppressTextChanged || _slashUndoing) return;
         SaveTaskNoteContent();
         AutoResizeWindow();
 
@@ -306,29 +313,76 @@ public sealed partial class NoteWindow : Window
             var slashPos = SlashCommands.DetectSlash(TaskNoteEditor);
             if (slashPos >= 0)
             {
-                var actions = SlashCommands.RichEditActions(TaskNoteEditor, slashPos);
+                // Check if "/" replaced a selection — undo to restore it
+                _slashUndoing = true;
+                TaskNoteEditor.Document.Undo();
+                _slashUndoing = false;
+
+                var sel = TaskNoteEditor.Document.Selection;
+                bool hadSelection = sel.StartPosition != sel.EndPosition;
+
+                if (hadSelection)
+                {
+                    slashPos = -1;
+                }
+                else
+                {
+                    _slashUndoing = true;
+                    TaskNoteEditor.Document.Redo();
+                    _slashUndoing = false;
+                }
+
+                var formatActions = SlashCommands.RichEditActions(TaskNoteEditor, slashPos);
+                var aiActions = IsAiEnabled() ? CreateSlashAiActions(TaskNoteEditor, slashPos) : null;
                 var sp = slashPos;
-                actions.Add(new ActionPanel.ActionItem("\uE720", Lang.T("audio"), [], () =>
+
+                var topActions = new List<ActionPanel.ActionItem>();
+
+                void ReopenMain() =>
+                    _slashFlyout = SlashCommands.Show(TaskNoteEditor, topActions, () => _slashFlyout = null);
+
+                // Format submenu
+                topActions.Add(new("\uE8D2", Lang.T("format"), [], () =>
+                {
+                    _slashFlyout = SlashCommands.ShowSubFlyout(TaskNoteEditor,
+                        Lang.T("format"), formatActions,
+                        onClosed: () => _slashFlyout = null,
+                        onEscBack: ReopenMain);
+                }));
+
+                // IA submenu
+                if (aiActions != null)
+                {
+                    topActions.Add(new("\uE99A", Lang.T("ai_section"), [], () =>
+                    {
+                        _slashFlyout = SlashCommands.ShowSubFlyout(TaskNoteEditor,
+                            Lang.T("ai_section"), aiActions,
+                            onClosed: () => _slashFlyout = null,
+                            onEscBack: ReopenMain);
+                    }));
+                }
+
+                topActions.Add(new("\uE720", Lang.T("audio"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     StartVoiceRecording();
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE71B", Lang.T("link"), [], () =>
+                topActions.Add(new("\uE71B", Lang.T("link"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     DispatcherQueue.TryEnqueue(() => ShowTaskNoteLinkFlyout());
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE722", Lang.T("capture"), [], () =>
+                topActions.Add(new("\uE722", Lang.T("capture"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     StartScreenCapture(TaskNoteEditor);
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE8F4", Lang.T("extract_text"), [], () =>
+                topActions.Add(new("\uE8F4", Lang.T("extract_text"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     StartOcrCapture(TaskNoteEditor);
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE70F", Lang.T("text_editor"), [], () =>
+                topActions.Add(new("\uE70F", Lang.T("text_editor"), [], () =>
                 {
                     SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                     SaveTaskNoteContent();
@@ -336,14 +390,14 @@ public sealed partial class NoteWindow : Window
                 }));
                 if (_snippetManager != null)
                 {
-                    actions.Add(new ActionPanel.ActionItem("\uE943", Lang.T("snippet"), [], () =>
+                    topActions.Add(new("\uE943", Lang.T("snippet"), [], () =>
                     {
                         SlashCommands.DeleteSlash(TaskNoteEditor, sp);
                         SaveTaskNoteContent();
                         ActionPanel.ShowSnippetFlyout(TaskNoteEditor, _note.Id, _snippetManager, _note.Content);
                     }));
                 }
-                _slashFlyout = SlashCommands.Show(TaskNoteEditor, actions, () => _slashFlyout = null);
+                _slashFlyout = SlashCommands.Show(TaskNoteEditor, topActions, () => _slashFlyout = null);
             }
         }
     }
@@ -547,7 +601,7 @@ public sealed partial class NoteWindow : Window
             }
         };
 
-        reminderBtn.Click += async (_, _) => await ShowTaskReminderDialog(task, bellIcon, reminderBtn);
+        reminderBtn.Click += (_, _) => ShowTaskReminderDialog(task, bellIcon, reminderBtn);
         deleteBtn.Click += (_, _) => RemoveTask(grid);
 
         Grid.SetColumn(checkBox, 0);
@@ -761,7 +815,7 @@ public sealed partial class NoteWindow : Window
 
     private void NoteEditor_TextChanged(object sender, RoutedEventArgs e)
     {
-        if (_suppressTextChanged) return;
+        if (_suppressTextChanged || _slashUndoing) return;
         SaveCurrentNote();
         AutoResizeWindow();
 
@@ -770,30 +824,77 @@ public sealed partial class NoteWindow : Window
             var slashPos = SlashCommands.DetectSlash(NoteEditor);
             if (slashPos >= 0)
             {
-                var actions = SlashCommands.RichEditActions(NoteEditor, slashPos);
+                // Check if "/" replaced a selection — undo to restore it
+                _slashUndoing = true;
+                NoteEditor.Document.Undo();
+                _slashUndoing = false;
+
+                var sel = NoteEditor.Document.Selection;
+                bool hadSelection = sel.StartPosition != sel.EndPosition;
+
+                if (hadSelection)
+                {
+                    slashPos = -1;
+                }
+                else
+                {
+                    _slashUndoing = true;
+                    NoteEditor.Document.Redo();
+                    _slashUndoing = false;
+                }
+
+                var formatActions = SlashCommands.RichEditActions(NoteEditor, slashPos);
+                var aiActions = IsAiEnabled() ? CreateSlashAiActions(NoteEditor, slashPos) : null;
                 var sp = slashPos;
-                actions.Add(new ActionPanel.ActionItem("\uE73A", Lang.T("task"), [], () => ConvertToTaskList(sp)));
-                actions.Add(new ActionPanel.ActionItem("\uE720", Lang.T("audio"), [], () =>
+
+                var topActions = new List<ActionPanel.ActionItem>();
+
+                void ReopenMain() =>
+                    _slashFlyout = SlashCommands.Show(NoteEditor, topActions, () => _slashFlyout = null);
+
+                // Format submenu
+                topActions.Add(new("\uE8D2", Lang.T("format"), [], () =>
+                {
+                    _slashFlyout = SlashCommands.ShowSubFlyout(NoteEditor,
+                        Lang.T("format"), formatActions,
+                        onClosed: () => _slashFlyout = null,
+                        onEscBack: ReopenMain);
+                }));
+
+                // IA submenu
+                if (aiActions != null)
+                {
+                    topActions.Add(new("\uE99A", Lang.T("ai_section"), [], () =>
+                    {
+                        _slashFlyout = SlashCommands.ShowSubFlyout(NoteEditor,
+                            Lang.T("ai_section"), aiActions,
+                            onClosed: () => _slashFlyout = null,
+                            onEscBack: ReopenMain);
+                    }));
+                }
+
+                topActions.Add(new("\uE73A", Lang.T("task"), [], () => ConvertToTaskList(sp)));
+                topActions.Add(new("\uE720", Lang.T("audio"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     StartVoiceRecording();
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE71B", Lang.T("link"), [], () =>
+                topActions.Add(new("\uE71B", Lang.T("link"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     DispatcherQueue.TryEnqueue(() => ShowLinkFlyout());
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE722", Lang.T("capture"), [], () =>
+                topActions.Add(new("\uE722", Lang.T("capture"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     StartScreenCapture(NoteEditor);
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE8F4", Lang.T("extract_text"), [], () =>
+                topActions.Add(new("\uE8F4", Lang.T("extract_text"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     StartOcrCapture(NoteEditor);
                 }));
-                actions.Add(new ActionPanel.ActionItem("\uE70F", Lang.T("text_editor"), [], () =>
+                topActions.Add(new("\uE70F", Lang.T("text_editor"), [], () =>
                 {
                     SlashCommands.DeleteSlash(NoteEditor, sp);
                     SaveCurrentNote();
@@ -801,16 +902,334 @@ public sealed partial class NoteWindow : Window
                 }));
                 if (_snippetManager != null)
                 {
-                    actions.Add(new ActionPanel.ActionItem("\uE943", Lang.T("snippet"), [], () =>
+                    topActions.Add(new("\uE943", Lang.T("snippet"), [], () =>
                     {
                         SlashCommands.DeleteSlash(NoteEditor, sp);
                         SaveCurrentNote();
                         ActionPanel.ShowSnippetFlyout(NoteEditor, _note.Id, _snippetManager, _note.Content);
                     }));
                 }
-                _slashFlyout = SlashCommands.Show(NoteEditor, actions, () => _slashFlyout = null);
+                _slashFlyout = SlashCommands.Show(NoteEditor, topActions, () => _slashFlyout = null);
             }
         }
+    }
+
+    private void NoteEditor_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        ShowAiContextMenu(NoteEditor, e);
+    }
+
+    private void TaskNoteEditor_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        ShowAiContextMenu(TaskNoteEditor, e);
+    }
+
+    private void ShowAiContextMenu(RichEditBox editor, ContextRequestedEventArgs e)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        var selection = editor.Document.Selection;
+        selection.GetText(TextGetOptions.None, out var selectedText);
+        if (string.IsNullOrWhiteSpace(selectedText))
+            return;
+
+        e.Handled = true;
+        ShowAiActionsFlyout(editor, editor);
+    }
+
+    private void AiMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        var editor = GetCurrentAiEditor();
+        ShowAiActionsFlyout(AiButton, editor);
+    }
+
+    private RichEditBox GetCurrentAiEditor()
+    {
+        if (_note.NoteType == "tasklist")
+            return TaskNoteEditor;
+
+        var focused = FocusManager.GetFocusedElement(RootGrid.XamlRoot);
+        if (focused == TaskNoteEditor)
+            return TaskNoteEditor;
+
+        return NoteEditor;
+    }
+
+    private void ShowAiActionsFlyout(FrameworkElement target, RichEditBox editor)
+    {
+        if (!IsAiEnabled())
+            return;
+
+        var actions = CreateAiActions(editor);
+        var flyout = ActionPanel.Create(Lang.T("ai_section"), actions);
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft;
+        flyout.Opened += (_, _) => AnimateAiFlyoutItems(flyout);
+        flyout.ShowAt(target);
+    }
+
+    private string AiPrompt(string key) => _aiManager?.GetPrompt(key) ?? AiManager.GetDefaultPrompt(key);
+
+    private List<ActionPanel.ActionItem> CreateAiActions(RichEditBox editor)
+    {
+        var list = new List<ActionPanel.ActionItem>
+        {
+            new("\uE8D2", Lang.T("ai_improve_writing"), [],
+                () => _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_improve_writing"))),
+            new("\uE8FD", Lang.T("ai_fix_grammar_spelling"), [],
+                () => _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_fix_grammar_spelling"))),
+            new("\uE8D3", Lang.T("ai_tone_professional"), [],
+                () => _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_professional"))),
+            new("\uE8D4", Lang.T("ai_tone_friendly"), [],
+                () => _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_friendly"))),
+            new("\uE8D5", Lang.T("ai_tone_concise"), [],
+                () => _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_concise"))),
+        };
+        if (_aiManager != null)
+            foreach (var cp in _aiManager.Settings.CustomPrompts)
+            {
+                var instruction = cp.Instruction;
+                list.Add(new("\uE945", cp.Title, [],
+                    () => _ = ApplyAiToSelectionAsync(editor, instruction)));
+            }
+        return list;
+    }
+
+    private List<ActionPanel.ActionItem> CreateSlashAiActions(RichEditBox editor, int slashPos)
+    {
+        var list = new List<ActionPanel.ActionItem>
+        {
+            new("\uE8D2", Lang.T("ai_improve_writing"), [],
+                () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_improve_writing")); }),
+            new("\uE8FD", Lang.T("ai_fix_grammar_spelling"), [],
+                () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_fix_grammar_spelling")); }),
+            new("\uE8D3", Lang.T("ai_tone_professional"), [],
+                () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_professional")); }),
+            new("\uE8D4", Lang.T("ai_tone_friendly"), [],
+                () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_friendly")); }),
+            new("\uE8D5", Lang.T("ai_tone_concise"), [],
+                () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, AiPrompt("ai_tone_concise")); }),
+        };
+        if (_aiManager != null)
+            foreach (var cp in _aiManager.Settings.CustomPrompts)
+            {
+                var instruction = cp.Instruction;
+                list.Add(new("\uE945", cp.Title, [],
+                    () => { SlashCommands.DeleteSlash(editor, slashPos); _ = ApplyAiToSelectionAsync(editor, instruction); }));
+            }
+        return list;
+    }
+
+    private static void AnimateAiFlyoutItems(Flyout flyout)
+    {
+        if (flyout.Content is not Panel panel) return;
+        var delay = 0;
+        foreach (var child in panel.Children)
+        {
+            if (child is Button btn)
+            {
+                AnimationHelper.FadeSlideIn(btn, delay, 180);
+                delay += 24;
+            }
+        }
+    }
+
+    private async Task ApplyAiToSelectionAsync(RichEditBox editor, string instruction)
+    {
+        var selection = editor.Document.Selection;
+        var start = selection.StartPosition;
+        var end = selection.EndPosition;
+        if (start >= end)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_select_text_first"));
+            return;
+        }
+
+        selection.GetText(TextGetOptions.None, out var selectedText);
+        if (string.IsNullOrWhiteSpace(selectedText))
+        {
+            await ShowAiMessageAsync(Lang.T("ai_select_text_first"));
+            return;
+        }
+
+        var rewritten = await TransformSelectionWithAiAsync(selectedText, instruction);
+        if (string.IsNullOrWhiteSpace(rewritten))
+            return;
+
+        var range = editor.Document.GetRange(start, end);
+        range.SetText(TextSetOptions.None, rewritten);
+        editor.Document.Selection.SetRange(start, start + rewritten.Length);
+        editor.Focus(FocusState.Programmatic);
+
+        if (editor == NoteEditor)
+            SaveCurrentNote();
+        else
+            SaveTaskNoteContent();
+    }
+
+    private async Task<string?> TransformSelectionWithAiAsync(string selectedText, string instruction)
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        if (!_aiManager.IsEnabled)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
+            return null;
+        }
+
+        var prompt = BuildAiPrompt(selectedText, instruction);
+        var history = new List<AiManager.ChatMessage>();
+        var output = new StringBuilder();
+
+        try
+        {
+            if (TryGetActiveCloud(out var provider, out var apiKey, out var modelId))
+            {
+                await foreach (var token in provider.StreamChatAsync(
+                    apiKey,
+                    modelId,
+                    _aiManager.Settings.SystemPrompt,
+                    history,
+                    prompt,
+                    _aiManager.Settings.Temperature,
+                    _aiManager.Settings.MaxTokens))
+                {
+                    output.Append(token);
+                }
+            }
+            else if (TryGetActiveLocal(out var localModelFile))
+            {
+                await _aiManager.LoadModelAsync(localModelFile);
+                await foreach (var token in _aiManager.ChatLocalAsync(prompt, history))
+                    output.Append(token);
+            }
+            else
+            {
+                await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowAiMessageAsync(Lang.T("ai_transform_failed", ex.Message));
+            return null;
+        }
+
+        var text = NormalizeAiOutput(output.ToString());
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            await ShowAiMessageAsync(Lang.T("ai_transform_empty"));
+            return null;
+        }
+        return text;
+    }
+
+    private bool TryGetActiveCloud(out ICloudAiProvider provider, out string apiKey, out string modelId)
+    {
+        provider = default!;
+        apiKey = "";
+        modelId = "";
+
+        var providerId = _aiManager?.Settings.LastProviderId ?? "";
+        modelId = _aiManager?.Settings.LastModelId ?? "";
+        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(modelId))
+            return false;
+
+        var p = _aiManager!.GetProvider(providerId);
+        if (p == null)
+            return false;
+
+        apiKey = _aiManager.GetApiKey(providerId);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return false;
+
+        provider = p;
+        return true;
+    }
+
+    private bool TryGetActiveLocal(out string localModelFile)
+    {
+        localModelFile = _aiManager?.Settings.LastLocalModelFileName ?? "";
+        if (string.IsNullOrWhiteSpace(localModelFile))
+            return false;
+
+        var modelPath = Path.Combine(AiManager.ModelsDir, localModelFile);
+        return File.Exists(modelPath);
+    }
+
+    private static string BuildAiPrompt(string selectedText, string instruction) =>
+        $"""
+        You are rewriting user text.
+        Task: {instruction}
+
+        Rules:
+        - IMPORTANT: Reply in the SAME language as the original text. If the text is in French, reply in French. If in English, reply in English.
+        - Preserve the original meaning and facts.
+        - Return ONLY the rewritten text. No title, no explanation, no bullet list, no prefix like "assistant" or "Here is".
+
+        Text:
+        <<<
+        {selectedText}
+        >>>
+        """;
+
+    private static string NormalizeAiOutput(string raw)
+    {
+        var text = raw.Trim();
+
+        // Strip "assistant" role prefix emitted by some local models (Llama, etc.)
+        if (text.StartsWith("assistant", StringComparison.OrdinalIgnoreCase))
+        {
+            text = text["assistant".Length..].TrimStart(':', ' ', '\n', '\r');
+        }
+
+        if (text.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = text.IndexOf('\n');
+            if (firstLineBreak >= 0)
+            {
+                text = text[(firstLineBreak + 1)..];
+                var closingFence = text.LastIndexOf("```", StringComparison.Ordinal);
+                if (closingFence >= 0)
+                    text = text[..closingFence];
+            }
+        }
+
+        text = text.Trim();
+        if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+            text = text[1..^1];
+        return text.Trim();
+    }
+
+    public void RefreshAiUi()
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        if (!_aiManager.IsEnabled)
+            _aiManager.UnloadModel();
+        AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private bool IsAiEnabled()
+    {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        return _aiManager.IsEnabled;
+    }
+
+    private async Task ShowAiMessageAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = Lang.T("ai_section"),
+            Content = message,
+            CloseButtonText = Lang.T("ok"),
+            XamlRoot = RootGrid.XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     private void Format_Click(object sender, RoutedEventArgs e)
@@ -1071,7 +1490,7 @@ public sealed partial class NoteWindow : Window
                 UpdateMenuIcon();
                 NoteChanged?.Invoke();
             }),
-            new("\uE823", reminderLabel, [], async () => await ShowNoteReminderMenu()),
+            new("\uE823", reminderLabel, [], () => ShowNoteReminderMenu()),
             new("\uE8EC", tagLabel, [], () => ShowTagMenu()),
             new(autoResizeGlyph, autoResizeLabel, [], () =>
             {
@@ -1108,9 +1527,8 @@ public sealed partial class NoteWindow : Window
         flyout.ShowAt(MenuButton);
     }
 
-    private async Task ShowTaskReminderDialog(TaskItem task, FontIcon bellIcon, Button reminderBtn)
+    private void ShowTaskReminderDialog(TaskItem task, FontIcon bellIcon, Button reminderBtn)
     {
-        var primaryBrush = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
         var tertiaryBrush = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
 
         // If reminder already set, offer to change or remove
@@ -1118,7 +1536,7 @@ public sealed partial class NoteWindow : Window
         {
             var actions = new List<ActionPanel.ActionItem>
             {
-                new("\uE70F", $"{Lang.T("edit")} ({task.ReminderAt:dd/MM HH:mm})", [], async () => await EditTaskReminder(task, bellIcon, reminderBtn)),
+                new("\uE70F", $"{Lang.T("edit")} ({task.ReminderAt:dd/MM HH:mm})", [], () => EditTaskReminder(task, bellIcon, reminderBtn)),
                 new("\uE711", Lang.T("delete_reminder"), [], () =>
                 {
                     task.ReminderAt = null;
@@ -1134,7 +1552,7 @@ public sealed partial class NoteWindow : Window
             return;
         }
 
-        await EditTaskReminder(task, bellIcon, reminderBtn);
+        EditTaskReminder(task, bellIcon, reminderBtn);
     }
 
     private async Task EditTaskReminder(TaskItem task, FontIcon bellIcon, Button reminderBtn)
@@ -1148,57 +1566,49 @@ public sealed partial class NoteWindow : Window
             Date = new DateTimeOffset(defaultDate.Date),
             MinYear = new DateTimeOffset(now.Date),
             MaxYear = new DateTimeOffset(now.Date.AddYears(1)),
-            DayFormat = "{day.integer} {month.abbreviated}",
-            Margin = new Thickness(0, 0, 0, 12)
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-
-        var timeBox = new TextBox
+        var timePicker = new TimePicker
         {
-            Text = defaultDate.ToString("HH:mm"),
-            PlaceholderText = "HH:mm",
-            FontSize = 14,
-            MaxLength = 5,
-            InputScope = new InputScope(),
+            Time = defaultDate.TimeOfDay,
+            ClockIdentifier = "24HourClock",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        timeBox.InputScope.Names.Add(new InputScopeName(InputScopeNameValue.TimeHour));
 
-        var timeError = new TextBlock
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(16), MinWidth = 280 };
+        panel.Children.Add(new TextBlock
         {
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
-            Visibility = Visibility.Collapsed,
-            Margin = new Thickness(0, 2, 0, 0)
-        };
-
-        var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(new TextBlock { Text = Lang.T("date"), FontSize = 12 });
+            Text = Lang.T("set_reminder"),
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
         panel.Children.Add(datePicker);
-        panel.Children.Add(new TextBlock { Text = Lang.T("time"), FontSize = 12 });
-        panel.Children.Add(timeBox);
-        panel.Children.Add(timeError);
+        panel.Children.Add(timePicker);
 
-        var dialog = new ContentDialog
+        var btnRow = new StackPanel
         {
-            Title = Lang.T("set_reminder"),
-            Content = panel,
-            PrimaryButtonText = Lang.T("set"),
-            CloseButtonText = Lang.T("cancel"),
-            XamlRoot = this.Content.XamlRoot
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0),
         };
-
-        while (true)
+        var cancelBtn = new Button { Content = Lang.T("cancel") };
+        var setBtn = new Button
         {
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Primary) return;
+            Content = Lang.T("set_reminder"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(setBtn);
+        panel.Children.Add(btnRow);
 
-            if (!TimeSpan.TryParse(timeBox.Text.Trim(), out var time) || time.TotalHours >= 24)
-            {
-                timeError.Text = Lang.T("invalid_time_format");
-                timeError.Visibility = Visibility.Visible;
-                continue;
-            }
-
-            var reminderDate = datePicker.Date.DateTime.Date + time;
+        var flyout = new Flyout { Content = panel };
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(300, 360);
+        cancelBtn.Click += (_, _) => flyout.Hide();
+        setBtn.Click += (_, _) =>
+        {
+            var reminderDate = datePicker.Date.DateTime.Date + timePicker.Time;
             if (reminderDate <= DateTime.Now)
                 reminderDate = reminderDate.AddDays(1);
 
@@ -1208,8 +1618,9 @@ public sealed partial class NoteWindow : Window
             reminderBtn.Opacity = 1;
             ToolTipService.SetToolTip(reminderBtn, $"{reminderDate:dd/MM HH:mm}");
             SaveTasks();
-            break;
-        }
+            flyout.Hide();
+        };
+        flyout.ShowAt(reminderBtn);
     }
 
     // ── Tags (menu) ─────────────────────────────────────────
@@ -1327,13 +1738,13 @@ public sealed partial class NoteWindow : Window
 
     // ── Reminder (menu) ──────────────────────────────────────
 
-    private async Task ShowNoteReminderMenu()
+    private void ShowNoteReminderMenu()
     {
         if (_note.ReminderAt != null)
         {
             var actions = new List<ActionPanel.ActionItem>
             {
-                new("\uE70F", $"{Lang.T("edit")} ({_note.ReminderAt:dd/MM HH:mm})", [], async () => await EditNoteReminder()),
+                new("\uE70F", $"{Lang.T("edit")} ({_note.ReminderAt:dd/MM HH:mm})", [], () => EditNoteReminder()),
                 new("\uE711", Lang.T("delete_reminder"), [], () =>
                 {
                     _note.ReminderAt = null;
@@ -1346,10 +1757,10 @@ public sealed partial class NoteWindow : Window
             return;
         }
 
-        await EditNoteReminder();
+        EditNoteReminder();
     }
 
-    private async Task EditNoteReminder()
+    private void EditNoteReminder()
     {
         var now = DateTime.Now;
         var defaultDate = _note.ReminderAt ?? now.AddHours(1);
@@ -1359,65 +1770,58 @@ public sealed partial class NoteWindow : Window
             Date = new DateTimeOffset(defaultDate.Date),
             MinYear = new DateTimeOffset(now.Date),
             MaxYear = new DateTimeOffset(now.Date.AddYears(1)),
-            DayFormat = "{day.integer} {month.abbreviated}",
-            Margin = new Thickness(0, 0, 0, 12)
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-
-        var timeBox = new TextBox
+        var timePicker = new TimePicker
         {
-            Text = defaultDate.ToString("HH:mm"),
-            PlaceholderText = "HH:mm",
-            FontSize = 14,
-            MaxLength = 5,
-            InputScope = new InputScope(),
+            Time = defaultDate.TimeOfDay,
+            ClockIdentifier = "24HourClock",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        timeBox.InputScope.Names.Add(new InputScopeName(InputScopeNameValue.TimeHour));
 
-        var timeError = new TextBlock
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(16), MinWidth = 280 };
+        panel.Children.Add(new TextBlock
         {
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
-            Visibility = Visibility.Collapsed,
-            Margin = new Thickness(0, 2, 0, 0)
-        };
-
-        var panel = new StackPanel { Spacing = 4 };
-        panel.Children.Add(new TextBlock { Text = Lang.T("date"), FontSize = 12 });
+            Text = Lang.T("set_reminder"),
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
         panel.Children.Add(datePicker);
-        panel.Children.Add(new TextBlock { Text = Lang.T("time"), FontSize = 12 });
-        panel.Children.Add(timeBox);
-        panel.Children.Add(timeError);
+        panel.Children.Add(timePicker);
 
-        var dialog = new ContentDialog
+        var btnRow = new StackPanel
         {
-            Title = Lang.T("set_reminder"),
-            Content = panel,
-            PrimaryButtonText = Lang.T("set"),
-            CloseButtonText = Lang.T("cancel"),
-            XamlRoot = this.Content.XamlRoot
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0),
         };
-
-        while (true)
+        var cancelBtn = new Button { Content = Lang.T("cancel") };
+        var setBtn = new Button
         {
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Primary) return;
+            Content = Lang.T("set_reminder"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+        };
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(setBtn);
+        panel.Children.Add(btnRow);
 
-            if (!TimeSpan.TryParse(timeBox.Text.Trim(), out var time) || time.TotalHours >= 24)
-            {
-                timeError.Text = Lang.T("invalid_time_format");
-                timeError.Visibility = Visibility.Visible;
-                continue;
-            }
-
-            var reminderDate = datePicker.Date.DateTime.Date + time;
+        var flyout = new Flyout { Content = panel };
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(300, 360);
+        cancelBtn.Click += (_, _) => flyout.Hide();
+        setBtn.Click += (_, _) =>
+        {
+            var reminderDate = datePicker.Date.DateTime.Date + timePicker.Time;
             if (reminderDate <= DateTime.Now)
                 reminderDate = reminderDate.AddDays(1);
 
             _note.ReminderAt = reminderDate;
             _notesManager.UpdateNoteReminder(_note.Id, reminderDate);
             NoteChanged?.Invoke();
-            break;
-        }
+            flyout.Hide();
+        };
+        flyout.ShowAt(MenuButton);
     }
 
     // Spring scale animation for buttons on hover
