@@ -1072,8 +1072,8 @@ public sealed partial class NoteWindow : Window
 
     private async Task<string?> TransformSelectionWithAiAsync(string selectedText, string instruction)
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
+        try { _aiManager ??= new AiManager(); _aiManager.Load(); }
+        catch { await ShowAiMessageAsync("AI unavailable"); return null; }
         if (!_aiManager.IsEnabled)
         {
             await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
@@ -1206,18 +1206,29 @@ public sealed partial class NoteWindow : Window
 
     public void RefreshAiUi()
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
-        if (!_aiManager.IsEnabled)
-            _aiManager.UnloadModel();
-        AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            if (!_aiManager.IsEnabled)
+                _aiManager.UnloadModel();
+            AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch
+        {
+            AiButton.Visibility = Visibility.Collapsed;
+        }
     }
 
     private bool IsAiEnabled()
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
-        return _aiManager.IsEnabled;
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            return _aiManager.IsEnabled;
+        }
+        catch { return false; }
     }
 
     private async Task ShowAiMessageAsync(string message)

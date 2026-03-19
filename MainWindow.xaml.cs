@@ -587,23 +587,55 @@ public sealed partial class MainWindow : Window
         RebuildModelsPanel();
     }
 
+    private static readonly string _logPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI", "debug.log");
+
+    private static void LogDebug(string msg)
+    {
+        try { File.AppendAllText(_logPath, $"[{DateTime.Now:HH:mm:ss}] {msg}\n"); } catch { }
+    }
+
     private void ShowAiInSettings(Flyout flyout)
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
+        LogDebug("ShowAiInSettings called");
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            LogDebug("AiManager loaded OK");
+        }
+        catch (Exception ex)
+        {
+            LogDebug($"AiManager error: {ex}");
+            flyout.Content = new TextBlock { Text = $"AI error: {ex.Message}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10) };
+            return;
+        }
 
         ActionPanel.ShowAiPanel(flyout, _aiManager, Content.XamlRoot,
             onBack: () => Settings_Click(SettingsButton, new RoutedEventArgs()),
             onAiStateChanged: RefreshAiUiAcrossOpenWindows);
+        LogDebug("ShowAiPanel done");
     }
 
     private void ShowPromptsInSettings(Flyout flyout)
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
+        LogDebug("ShowPromptsInSettings called");
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            LogDebug("AiManager loaded OK");
+        }
+        catch (Exception ex)
+        {
+            LogDebug($"AiManager error: {ex}");
+            flyout.Content = new TextBlock { Text = $"AI error: {ex.Message}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10) };
+            return;
+        }
 
         ActionPanel.ShowPromptsPanel(flyout, _aiManager,
             onBack: () => Settings_Click(SettingsButton, new RoutedEventArgs()));
+        LogDebug("ShowPromptsPanel done");
     }
 
     private void RefreshAiUiAcrossOpenWindows()
