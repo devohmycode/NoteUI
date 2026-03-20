@@ -17,7 +17,7 @@ public sealed partial class NotepadWindow : Window
     private readonly NotesManager _notesManager;
     private SnippetManager? _snippetManager;
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isPinned;

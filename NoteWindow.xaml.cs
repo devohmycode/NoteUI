@@ -18,7 +18,7 @@ public sealed partial class NoteWindow : Window
     private bool _isPinnedOnTop;
     private bool _suppressTextChanged;
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isCompact;

@@ -165,21 +165,42 @@ public static class AppSettings
     // ── Apply to any window ─────────────────────────────────────
 
     public static void ApplyToWindow(Window window, BackdropSettings settings,
-        ref DesktopAcrylicController? controller, ref SystemBackdropConfiguration? configSource)
+        ref IDisposable? controller, ref SystemBackdropConfiguration? configSource)
     {
         controller?.Dispose();
         controller = null;
+        configSource = null;
+        window.SystemBackdrop = null;
 
-        if (settings.Type == "acrylic_custom")
+        if (settings.Type == "none")
+            return;
+
+        controller = CreateBackdropController(settings);
+        if (controller is null)
+            return;
+
+        configSource = new SystemBackdropConfiguration
         {
-            window.SystemBackdrop = null;
+            IsInputActive = true,
+            Theme = SystemBackdropTheme.Default
+        };
 
-            configSource = new SystemBackdropConfiguration();
-            configSource.IsInputActive = true;
-            if (window.Content is FrameworkElement fe)
-                configSource.Theme = (SystemBackdropTheme)fe.ActualTheme;
+        if (window.Content is FrameworkElement fe)
+            configSource.Theme = (SystemBackdropTheme)fe.ActualTheme;
 
-            controller = new DesktopAcrylicController
+        ConfigureBackdropController(
+            controller,
+            window.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(),
+            configSource);
+    }
+
+    private static IDisposable? CreateBackdropController(BackdropSettings settings)
+    {
+        return settings.Type switch
+        {
+            "mica" when MicaController.IsSupported() => new MicaController(),
+            "mica_alt" when MicaController.IsSupported() => new MicaController { Kind = MicaKind.BaseAlt },
+            "acrylic_custom" when DesktopAcrylicController.IsSupported() => new DesktopAcrylicController
             {
                 TintOpacity = (float)settings.TintOpacity,
                 LuminosityOpacity = (float)settings.LuminosityOpacity,
@@ -188,22 +209,27 @@ public static class AppSettings
                 Kind = settings.Kind == "Thin"
                     ? DesktopAcrylicKind.Thin
                     : DesktopAcrylicKind.Base,
-            };
+            },
+            _ when DesktopAcrylicController.IsSupported() => new DesktopAcrylicController(),
+            _ => null
+        };
+    }
 
-            controller.AddSystemBackdropTarget(
-                window.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>());
-            controller.SetSystemBackdropConfiguration(configSource);
-        }
-        else
+    private static void ConfigureBackdropController(
+        IDisposable controller,
+        Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target,
+        SystemBackdropConfiguration config)
+    {
+        switch (controller)
         {
-            configSource = null;
-            window.SystemBackdrop = settings.Type switch
-            {
-                "mica" => new MicaBackdrop(),
-                "mica_alt" => new MicaBackdrop { Kind = MicaKind.BaseAlt },
-                "none" => null,
-                _ => new DesktopAcrylicBackdrop()
-            };
+            case MicaController mica:
+                mica.AddSystemBackdropTarget(target);
+                mica.SetSystemBackdropConfiguration(config);
+                break;
+            case DesktopAcrylicController acrylic:
+                acrylic.AddSystemBackdropTarget(target);
+                acrylic.SetSystemBackdropConfiguration(config);
+                break;
         }
     }
 

@@ -17,7 +17,7 @@ public sealed partial class MainWindow : Window
     private readonly List<NoteWindow> _openNoteWindows = [];
     private ReminderService? _reminderService;
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private TrayIcon? _trayIcon;

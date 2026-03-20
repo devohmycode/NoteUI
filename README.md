@@ -1,8 +1,8 @@
 # NoteUI
 
-A modern sticky notes application for Windows, built with **WinUI 3** (Windows App SDK 1.8) and **.NET 8**.
+A modern sticky notes application for Windows, built with **WinUI 3** (Windows App SDK 1.8) and **.NET 10**.
 
-![Windows](https://img.shields.io/badge/Windows-10%2F11-blue) ![.NET 8](https://img.shields.io/badge/.NET-8.0-purple) ![WinUI 3](https://img.shields.io/badge/WinUI-3-green)
+![Windows](https://img.shields.io/badge/Windows-10%2F11-blue) ![.NET 10](https://img.shields.io/badge/.NET-10.0-purple) ![WinUI 3](https://img.shields.io/badge/WinUI-3-green)
 
 ## Features
 
@@ -113,7 +113,7 @@ Options during installation:
 ## Build from Source
 
 ### Prerequisites
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Windows App SDK 1.8](https://learn.microsoft.com/windows/apps/windows-app-sdk/)
 - Windows 10 (build 19041) or later
 
@@ -127,7 +127,7 @@ dotnet build
 dotnet publish -c Release -r win-x64 --self-contained true
 ```
 
-Output: `bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/`
+Output: `bin/Release/net10.0-windows10.0.19041.0/win-x64/publish/`
 
 ### Create Installer
 Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php):
@@ -148,7 +148,7 @@ Output: `installer/NoteUI-Setup.exe`
 ## Tech Stack
 
 - **Framework**: WinUI 3 / Windows App SDK 1.8
-- **Runtime**: .NET 8 (self-contained, win-x64)
+- **Runtime**: .NET 10 (self-contained, win-x64)
 - **AI (local)**: LLamaSharp 0.26.0 (CPU + CUDA 12)
 - **AI (cloud)**: OpenAI, Anthropic Claude, Google Gemini REST APIs
 - **Audio**: NAudio 2.2.1

@@ -13,7 +13,7 @@ public sealed partial class AcrylicSettingsWindow : Window
     private bool _suppressChanges = true;
     private string _currentKind = "Base";
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isDragging;
