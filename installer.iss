@@ -1,7 +1,7 @@
 [Setup]
 AppId={{B8A3D1E7-4F2C-4B9A-8E6D-1A5C3F7E9D2B}
 AppName=NoteUI
-AppVersion=0.0.1
+AppVersion=0.1.1
 AppPublisher=NoteUI
 DefaultDirName={localappdata}\Programs\NoteUI
 DefaultGroupName=NoteUI
@@ -23,12 +23,12 @@ Name: "desktopicon"; Description: "Créer un raccourci sur le bureau"; GroupDesc
 Name: "startup"; Description: "Lancer au démarrage de Windows"; GroupDescription: "Options:"
 
 [Files]
-Source: "bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "runtimes\linux-*\*"
 
 [Icons]
-Name: "{group}\Notes"; Filename: "{app}\NoteUI.exe"
-Name: "{autodesktop}\Notes"; Filename: "{app}\NoteUI.exe"; Tasks: desktopicon
-Name: "{userstartup}\Notes"; Filename: "{app}\NoteUI.exe"; Tasks: startup
+Name: "{group}\NoteUI"; Filename: "{app}\NoteUI.exe"
+Name: "{autodesktop}\NoteUI"; Filename: "{app}\NoteUI.exe"; Tasks: desktopicon
+Name: "{userstartup}\NoteUI"; Filename: "{app}\NoteUI.exe"; Tasks: startup
 
 [Run]
-Filename: "{app}\NoteUI.exe"; Description: "Lancer Notes"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\NoteUI.exe"; Description: "Lancer NoteUI"; Flags: nowait postinstall skipifsilent

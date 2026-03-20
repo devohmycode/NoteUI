@@ -16,7 +16,7 @@ public sealed partial class VoiceNoteWindow : Window
 {
     private readonly NotesManager _notesManager;
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isPinnedOnTop;

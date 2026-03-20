@@ -18,7 +18,7 @@ public sealed partial class NoteWindow : Window
     private bool _isPinnedOnTop;
     private bool _suppressTextChanged;
 
-    private DesktopAcrylicController? _acrylicController;
+    private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isCompact;
@@ -46,6 +46,7 @@ public sealed partial class NoteWindow : Window
     private AiManager? _aiManager;
 
     public string NoteId => _note.Id;
+    public bool IsCompact => _isCompact;
 
     public event Action? NoteChanged;
     public event Action? OpenInNotepadRequested;
@@ -155,6 +156,136 @@ public sealed partial class NoteWindow : Window
     public void ApplyBackdrop(BackdropSettings settings)
     {
         AppSettings.ApplyToWindow(this, settings, ref _acrylicController, ref _configSource);
+    }
+
+    public void SetCompactState(bool compact, bool animate = true)
+    {
+        if (_isCompact == compact)
+            return;
+
+        _isCompact = compact;
+
+        var iconVisual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(CompactIcon);
+        iconVisual.CenterPoint = new System.Numerics.Vector3(
+            (float)(CompactIcon.ActualWidth / 2),
+            (float)(CompactIcon.ActualHeight / 2), 0);
+
+        if (animate)
+        {
+            var compositor = iconVisual.Compositor;
+            var rotAnim = compositor.CreateSpringScalarAnimation();
+            rotAnim.FinalValue = _isCompact ? 180f : 0f;
+            rotAnim.DampingRatio = 0.7f;
+            rotAnim.Period = TimeSpan.FromMilliseconds(60);
+            iconVisual.StartAnimation("RotationAngleInDegrees", rotAnim);
+        }
+        else
+        {
+            iconVisual.StopAnimation("RotationAngleInDegrees");
+            iconVisual.RotationAngleInDegrees = _isCompact ? 180f : 0f;
+        }
+
+        if (_isCompact)
+        {
+            TitleText.Text = _note.Title;
+            TitleEditBox.Visibility = Visibility.Collapsed;
+            TitleText.Visibility = Visibility.Visible;
+
+            if (animate)
+                AnimationHelper.FadeOut(MenuButton, 100, () => MenuButton.Visibility = Visibility.Collapsed);
+            else
+                MenuButton.Visibility = Visibility.Collapsed;
+
+            if (_note.NoteType == "tasklist")
+            {
+                if (animate)
+                {
+                    AnimationHelper.FadeOut(TaskListScroll, 120, () =>
+                    {
+                        TaskListScroll.Visibility = Visibility.Collapsed;
+                    });
+                }
+                else
+                {
+                    TaskListScroll.Visibility = Visibility.Collapsed;
+                }
+            }
+            else
+            {
+                if (animate)
+                {
+                    AnimationHelper.FadeOut(NoteEditor, 120, () =>
+                    {
+                        NoteEditor.Visibility = Visibility.Collapsed;
+                    });
+                }
+                else
+                {
+                    NoteEditor.Visibility = Visibility.Collapsed;
+                }
+            }
+
+            if (animate)
+            {
+                AnimationHelper.FadeOut(StatusBar, 120, () =>
+                {
+                    StatusBar.Visibility = Visibility.Collapsed;
+                });
+            }
+            else
+            {
+                StatusBar.Visibility = Visibility.Collapsed;
+            }
+        }
+        else
+        {
+            MenuButton.Visibility = Visibility.Visible;
+            if (animate)
+                AnimationHelper.FadeIn(MenuButton, 200, 60);
+            else
+                MenuButton.Opacity = 1;
+
+            TitleEditBox.Visibility = Visibility.Collapsed;
+            TitleText.Visibility = Visibility.Visible;
+            if (_note.NoteType == "tasklist")
+            {
+                TaskListScroll.Visibility = Visibility.Visible;
+                if (animate)
+                    AnimationHelper.FadeIn(TaskListScroll, 200, 100);
+                else
+                    TaskListScroll.Opacity = 1;
+            }
+            else
+            {
+                NoteEditor.Visibility = Visibility.Visible;
+                if (animate)
+                    AnimationHelper.FadeIn(NoteEditor, 200, 100);
+                else
+                    NoteEditor.Opacity = 1;
+            }
+
+            StatusBar.Visibility = Visibility.Visible;
+            if (animate)
+                AnimationHelper.FadeIn(StatusBar, 200, 150);
+            else
+                StatusBar.Opacity = 1;
+        }
+
+        _targetHeight = _isCompact ? CompactNoteHeight : FullNoteHeight;
+        _animTimer?.Stop();
+        _animTimer = null;
+
+        if (!animate)
+        {
+            _currentAnimHeight = _targetHeight;
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(400, _targetHeight));
+            return;
+        }
+
+        _currentAnimHeight = AppWindow.Size.Height;
+        _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(8) };
+        _animTimer.Tick += CompactAnimTick;
+        _animTimer.Start();
     }
 
     // ── Color ──────────────────────────────────────────────────
@@ -1072,8 +1203,8 @@ public sealed partial class NoteWindow : Window
 
     private async Task<string?> TransformSelectionWithAiAsync(string selectedText, string instruction)
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
+        try { _aiManager ??= new AiManager(); _aiManager.Load(); }
+        catch { await ShowAiMessageAsync("AI unavailable"); return null; }
         if (!_aiManager.IsEnabled)
         {
             await ShowAiMessageAsync(Lang.T("ai_no_model_selected"));
@@ -1206,18 +1337,29 @@ public sealed partial class NoteWindow : Window
 
     public void RefreshAiUi()
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
-        if (!_aiManager.IsEnabled)
-            _aiManager.UnloadModel();
-        AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            if (!_aiManager.IsEnabled)
+                _aiManager.UnloadModel();
+            AiButton.Visibility = _aiManager.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch
+        {
+            AiButton.Visibility = Visibility.Collapsed;
+        }
     }
 
     private bool IsAiEnabled()
     {
-        _aiManager ??= new AiManager();
-        _aiManager.Load();
-        return _aiManager.IsEnabled;
+        try
+        {
+            _aiManager ??= new AiManager();
+            _aiManager.Load();
+            return _aiManager.IsEnabled;
+        }
+        catch { return false; }
     }
 
     private async Task ShowAiMessageAsync(string message)
@@ -1874,69 +2016,7 @@ public sealed partial class NoteWindow : Window
 
     private void Compact_Click(object sender, RoutedEventArgs e)
     {
-        _isCompact = !_isCompact;
-
-        // Rotate chevron with spring animation
-        var iconVisual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(CompactIcon);
-        var compositor = iconVisual.Compositor;
-        iconVisual.CenterPoint = new System.Numerics.Vector3(
-            (float)(CompactIcon.ActualWidth / 2),
-            (float)(CompactIcon.ActualHeight / 2), 0);
-        var rotAnim = compositor.CreateSpringScalarAnimation();
-        rotAnim.FinalValue = _isCompact ? 180f : 0f;
-        rotAnim.DampingRatio = 0.7f;
-        rotAnim.Period = TimeSpan.FromMilliseconds(60);
-        iconVisual.StartAnimation("RotationAngleInDegrees", rotAnim);
-
-        if (_isCompact)
-        {
-            TitleText.Text = _note.Title;
-            AnimationHelper.FadeOut(MenuButton, 100, () => MenuButton.Visibility = Visibility.Collapsed);
-            if (_note.NoteType == "tasklist")
-            {
-                AnimationHelper.FadeOut(TaskListScroll, 120, () =>
-                {
-                    TaskListScroll.Visibility = Visibility.Collapsed;
-                });
-            }
-            else
-            {
-                AnimationHelper.FadeOut(NoteEditor, 120, () =>
-                {
-                    NoteEditor.Visibility = Visibility.Collapsed;
-                });
-            }
-            AnimationHelper.FadeOut(StatusBar, 120, () =>
-            {
-                StatusBar.Visibility = Visibility.Collapsed;
-            });
-        }
-        else
-        {
-            MenuButton.Visibility = Visibility.Visible;
-            AnimationHelper.FadeIn(MenuButton, 200, 60);
-            TitleEditBox.Visibility = Visibility.Collapsed;
-            TitleText.Visibility = Visibility.Visible;
-            if (_note.NoteType == "tasklist")
-            {
-                TaskListScroll.Visibility = Visibility.Visible;
-                AnimationHelper.FadeIn(TaskListScroll, 200, 100);
-            }
-            else
-            {
-                NoteEditor.Visibility = Visibility.Visible;
-                AnimationHelper.FadeIn(NoteEditor, 200, 100);
-            }
-            StatusBar.Visibility = Visibility.Visible;
-            AnimationHelper.FadeIn(StatusBar, 200, 150);
-        }
-
-        _targetHeight = _isCompact ? CompactNoteHeight : FullNoteHeight;
-        _currentAnimHeight = AppWindow.Size.Height;
-        _animTimer?.Stop();
-        _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(8) };
-        _animTimer.Tick += CompactAnimTick;
-        _animTimer.Start();
+        SetCompactState(!_isCompact);
     }
 
     private void CompactAnimTick(object? sender, object e)
