@@ -60,7 +60,11 @@ public sealed partial class MainWindow : Window
 
         WindowHelper.RemoveWindowBorder(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(380, 650));
-        WindowHelper.CenterOnScreen(this);
+        var savedMainPos = AppSettings.LoadMainWindowPosition();
+        if (savedMainPos is { } pos)
+            WindowHelper.MoveToVisibleArea(this, pos.X, pos.Y);
+        else
+            WindowHelper.MoveToBottomRight(this);
         WindowShadow.Apply(this);
 
         // Set window icon (for taskbar / Alt+Tab)
@@ -93,8 +97,10 @@ public sealed partial class MainWindow : Window
         // Hide to tray instead of closing
         AppWindow.Closing += (_, args) =>
         {
+            SaveMainWindowPosition();
             if (!_isExiting)
             {
+                SaveOpenedSecondaryWindows();
                 args.Cancel = true;
                 AppWindow.Hide();
             }
@@ -102,6 +108,7 @@ public sealed partial class MainWindow : Window
 
         this.Closed += (_, _) =>
         {
+            SaveMainWindowPosition();
             _textExpansion?.Stop();
             _reminderService?.Dispose();
             ReminderService.Shutdown();
@@ -117,6 +124,8 @@ public sealed partial class MainWindow : Window
         _textExpansion.Start();
         ApplyLocalization();
         RefreshNotesList();
+        SetCompactState(AppSettings.LoadMainWindowCompact(), animate: false);
+        RestorePersistedWindows();
 
         _reminderService = new ReminderService(_notes);
         _reminderService.ReminderFired += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
@@ -147,6 +156,8 @@ public sealed partial class MainWindow : Window
     private void ExitApplication()
     {
         _isExiting = true;
+        SaveMainWindowPosition();
+        SaveOpenedSecondaryWindows();
         foreach (var w in _openNoteWindows.ToList())
         {
             try { w.Close(); } catch { }
@@ -174,6 +185,61 @@ public sealed partial class MainWindow : Window
             NotesList.Children.Add(card);
             AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
             index++;
+        }
+    }
+
+    private void SaveMainWindowPosition()
+    {
+        AppSettings.SaveMainWindowPosition(AppWindow.Position);
+        AppSettings.SaveMainWindowCompact(_isCompact);
+    }
+
+    private void SaveOpenedSecondaryWindows()
+    {
+        var windows = new List<PersistedWindowState>();
+        foreach (var noteWindow in _openNoteWindows.ToList())
+        {
+            var pos = noteWindow.AppWindow.Position;
+            windows.Add(new PersistedWindowState("note", noteWindow.NoteId, pos.X, pos.Y, noteWindow.IsCompact));
+        }
+
+        if (_notepadWindow != null)
+        {
+            var pos = _notepadWindow.AppWindow.Position;
+            windows.Add(new PersistedWindowState("notepad", "", pos.X, pos.Y));
+        }
+
+        AppSettings.SaveOpenWindows(windows);
+    }
+
+    private void RestorePersistedWindows()
+    {
+        var windows = AppSettings.LoadOpenWindows();
+        if (windows.Count == 0)
+            return;
+
+        var notepadRestored = false;
+        foreach (var window in windows)
+        {
+            if (window.Type == "note" && !string.IsNullOrWhiteSpace(window.NoteId))
+            {
+                OpenNote(window.NoteId);
+                var opened = _openNoteWindows.FirstOrDefault(w => w.NoteId == window.NoteId);
+                if (opened != null)
+                {
+                    opened.SetCompactState(window.IsCompact, animate: false);
+                    WindowHelper.MoveToVisibleArea(opened, window.X, window.Y);
+                }
+                continue;
+            }
+
+            if (window.Type == "notepad" && !notepadRestored)
+            {
+                OpenNotepad();
+                if (_notepadWindow != null)
+                    WindowHelper.MoveToVisibleArea(_notepadWindow, window.X, window.Y);
+                notepadRestored = true;
+            }
         }
     }
 
@@ -978,24 +1044,57 @@ public sealed partial class MainWindow : Window
 
     private void Compact_Click(object sender, RoutedEventArgs e)
     {
-        _isCompact = !_isCompact;
+        SetCompactState(!_isCompact);
+    }
+
+    private void SetCompactState(bool compact, bool animate = true)
+    {
+        if (_isCompact == compact)
+            return;
+
+        _isCompact = compact;
         _targetHeight = _isCompact ? CompactHeight : FullHeight;
         CompactIcon.Glyph = _isCompact ? "\uE70D" : "\uE70E";
 
         if (_isCompact)
         {
-            AnimationHelper.FadeOut(TitleLabel, 100);
-            AnimationHelper.FadeOut(NotesScroll, 120);
+            if (animate)
+            {
+                AnimationHelper.FadeOut(TitleLabel, 100);
+                AnimationHelper.FadeOut(NotesScroll, 120);
+            }
+            else
+            {
+                TitleLabel.Opacity = 0;
+                NotesScroll.Opacity = 0;
+            }
         }
         else
         {
-            AnimationHelper.FadeIn(TitleLabel, 200, 80);
-            AnimationHelper.FadeIn(SearchGrid, 200, 120);
-            AnimationHelper.FadeIn(NotesScroll, 250, 160);
+            if (animate)
+            {
+                AnimationHelper.FadeIn(TitleLabel, 200, 80);
+                AnimationHelper.FadeIn(SearchGrid, 200, 120);
+                AnimationHelper.FadeIn(NotesScroll, 250, 160);
+            }
+            else
+            {
+                TitleLabel.Opacity = 1;
+                SearchGrid.Opacity = 1;
+                NotesScroll.Opacity = 1;
+            }
+        }
+
+        _animTimer?.Stop();
+        _animTimer = null;
+        if (!animate)
+        {
+            _currentAnimHeight = _targetHeight;
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(380, _targetHeight));
+            return;
         }
 
         _currentAnimHeight = AppWindow.Size.Height;
-        _animTimer?.Stop();
         _animTimer = new Microsoft.UI.Xaml.DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(8)

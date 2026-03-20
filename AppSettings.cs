@@ -14,6 +14,13 @@ public record BackdropSettings(
     string FallbackColor = "#000000",
     string Kind = "Base");
 
+public record PersistedWindowState(
+    string Type,
+    string NoteId,
+    int X,
+    int Y,
+    bool IsCompact = false);
+
 public static class AppSettings
 {
     private static readonly string SettingsDir =
@@ -294,6 +301,47 @@ public static class AppSettings
         return "system";
     }
 
+    public static (int X, int Y)? LoadMainWindowPosition()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath))
+                return null;
+
+            var json = File.ReadAllText(SettingsPath);
+            var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("mainWindowX", out var xProp) &&
+                root.TryGetProperty("mainWindowY", out var yProp) &&
+                xProp.TryGetInt32(out var x) &&
+                yProp.TryGetInt32(out var y))
+            {
+                return (x, y);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static bool LoadMainWindowCompact()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath))
+                return false;
+
+            var json = File.ReadAllText(SettingsPath);
+            var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("mainWindowCompact", out var compactProp) &&
+                (compactProp.ValueKind == JsonValueKind.True || compactProp.ValueKind == JsonValueKind.False))
+            {
+                return compactProp.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
     public static void SaveBackdropSettings(BackdropSettings settings)
     {
         MergeAndSaveSettings(new Dictionary<string, object>
@@ -312,6 +360,107 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["theme"] = theme });
     }
 
+    public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["mainWindowX"] = position.X,
+            ["mainWindowY"] = position.Y
+        });
+    }
+
+    public static void SaveMainWindowCompact(bool isCompact)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["mainWindowCompact"] = isCompact
+        });
+    }
+
+    public static List<PersistedWindowState> LoadOpenWindows()
+    {
+        var result = new List<PersistedWindowState>();
+        try
+        {
+            if (!File.Exists(SettingsPath))
+                return result;
+
+            var json = File.ReadAllText(SettingsPath);
+            var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("openWindows", out var windowsProp))
+            {
+                return result;
+            }
+
+            var arrayElement = windowsProp;
+            JsonDocument? nestedDoc = null;
+            if (windowsProp.ValueKind == JsonValueKind.String)
+            {
+                var raw = windowsProp.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    nestedDoc = JsonDocument.Parse(raw);
+                    arrayElement = nestedDoc.RootElement;
+                }
+            }
+
+            if (arrayElement.ValueKind != JsonValueKind.Array)
+            {
+                nestedDoc?.Dispose();
+                return result;
+            }
+
+            foreach (var item in arrayElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var type = item.TryGetProperty("type", out var typeProp)
+                    ? typeProp.GetString() ?? ""
+                    : "";
+                var noteId = item.TryGetProperty("noteId", out var noteIdProp)
+                    ? noteIdProp.GetString() ?? ""
+                    : "";
+                if (!item.TryGetProperty("x", out var xProp) ||
+                    !item.TryGetProperty("y", out var yProp) ||
+                    !xProp.TryGetInt32(out var x) ||
+                    !yProp.TryGetInt32(out var y) ||
+                    string.IsNullOrWhiteSpace(type))
+                {
+                    continue;
+                }
+
+                var isCompact =
+                    item.TryGetProperty("isCompact", out var compactProp) &&
+                    (compactProp.ValueKind == JsonValueKind.True || compactProp.ValueKind == JsonValueKind.False) &&
+                    compactProp.GetBoolean();
+
+                result.Add(new PersistedWindowState(type, noteId, x, y, isCompact));
+            }
+
+            nestedDoc?.Dispose();
+        }
+        catch { }
+        return result;
+    }
+
+    public static void SaveOpenWindows(IEnumerable<PersistedWindowState> windows)
+    {
+        var payload = windows.Select(w => new Dictionary<string, object>
+        {
+            ["type"] = w.Type,
+            ["noteId"] = w.NoteId,
+            ["x"] = w.X,
+            ["y"] = w.Y,
+            ["isCompact"] = w.IsCompact
+        }).ToList();
+
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["openWindows"] = payload
+        });
+    }
+
     private static void MergeAndSaveSettings(Dictionary<string, object> newValues)
     {
         try
@@ -324,14 +473,7 @@ public static class AppSettings
                 foreach (var prop in doc.RootElement.EnumerateObject())
                 {
                     if (newValues.ContainsKey(prop.Name)) continue;
-                    existing[prop.Name] = prop.Value.ValueKind switch
-                    {
-                        JsonValueKind.Number => prop.Value.TryGetInt64(out var l) ? l : prop.Value.GetDouble(),
-                        JsonValueKind.String => prop.Value.GetString()!,
-                        JsonValueKind.True => true,
-                        JsonValueKind.False => false,
-                        _ => prop.Value.GetRawText()
-                    };
+                    existing[prop.Name] = ConvertJsonElement(prop.Value) ?? "";
                 }
             }
 
@@ -342,6 +484,24 @@ public static class AppSettings
             File.WriteAllText(SettingsPath, JsonSerializer.Serialize(existing));
         }
         catch { }
+    }
+
+    private static object? ConvertJsonElement(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Object => value.EnumerateObject()
+                .ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+            JsonValueKind.Array => value.EnumerateArray()
+                .Select(ConvertJsonElement)
+                .ToList(),
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.TryGetInt64(out var l) ? l : value.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => value.GetRawText()
+        };
     }
 
     public static Windows.UI.Color ParseColor(string hex)

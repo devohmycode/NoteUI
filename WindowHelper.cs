@@ -70,6 +70,33 @@ internal static class WindowHelper
         appWindow.Move(new Windows.Graphics.PointInt32(x, y));
     }
 
+    public static void MoveToBottomRight(Window window, int margin = 12)
+    {
+        var appWindow = window.AppWindow;
+        var display = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary);
+        var workArea = display.WorkArea;
+
+        var x = workArea.X + Math.Max(0, workArea.Width - appWindow.Size.Width - margin);
+        var y = workArea.Y + Math.Max(0, workArea.Height - appWindow.Size.Height - margin);
+        appWindow.Move(new Windows.Graphics.PointInt32(x, y));
+    }
+
+    public static void MoveToVisibleArea(Window window, int x, int y)
+    {
+        var appWindow = window.AppWindow;
+        var display = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary);
+        var workArea = display.WorkArea;
+
+        var minX = workArea.X;
+        var minY = workArea.Y;
+        var maxX = workArea.X + Math.Max(0, workArea.Width - appWindow.Size.Width);
+        var maxY = workArea.Y + Math.Max(0, workArea.Height - appWindow.Size.Height);
+
+        var clampedX = Math.Clamp(x, minX, maxX);
+        var clampedY = Math.Clamp(y, minY, maxY);
+        appWindow.Move(new Windows.Graphics.PointInt32(clampedX, clampedY));
+    }
+
     public static OverlappedPresenter GetOverlappedPresenter(Window window)
     {
         var appWindow = window.AppWindow;
