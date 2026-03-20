@@ -9,6 +9,7 @@ namespace NoteUI;
 
 public class AiManager
 {
+
     // ── Data models ──
 
     public record ModelInfo(string Id, string Name);
