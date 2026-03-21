@@ -1503,9 +1503,32 @@ public sealed partial class NoteWindow : Window
             return;
         }
 
+        // For Groq cloud models, check API key
+        string? groqKey = null;
+        if (model.Engine == SttEngine.GroqCloud)
+        {
+            try { _aiManager ??= new AiManager(); _aiManager.Load(); } catch { }
+            groqKey = _aiManager?.GetApiKey("groq");
+            if (string.IsNullOrWhiteSpace(groqKey))
+            {
+                var tip = new TeachingTip
+                {
+                    Title = Lang.T("groq_key_required"),
+                    Subtitle = Lang.T("configure_model_hint"),
+                    IsLightDismissEnabled = true,
+                    PreferredPlacement = TeachingTipPlacementMode.Top,
+                    Target = VoiceButton,
+                };
+                RootGrid.Children.Add(tip);
+                tip.IsOpen = true;
+                tip.Closed += (_, _) => RootGrid.Children.Remove(tip);
+                return;
+            }
+        }
+
         try
         {
-            _voiceRecognizer = SpeechRecognizerFactory.Create(model);
+            _voiceRecognizer = SpeechRecognizerFactory.Create(model, groqKey);
         }
         catch
         {

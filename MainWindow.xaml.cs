@@ -507,7 +507,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _voiceNoteWindow = new VoiceNoteWindow(_notes);
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        _voiceNoteWindow = new VoiceNoteWindow(_notes, _aiManager);
         _voiceNoteWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
         _voiceNoteWindow.Closed += (_, _) => _voiceNoteWindow = null;
         _voiceNoteWindow.Activate();
@@ -597,6 +599,9 @@ public sealed partial class MainWindow : Window
 
     private void ShowVoiceModelsInSettings(Flyout flyout)
     {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+
         var settingsDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI");
         var settingsPath = Path.Combine(settingsDir, "voice_settings.json");
@@ -647,7 +652,8 @@ public sealed partial class MainWindow : Window
                     // Re-show main settings
                     Settings_Click(SettingsButton, new RoutedEventArgs());
                 },
-                onRebuild: RebuildModelsPanel);
+                onRebuild: RebuildModelsPanel,
+                aiManager: _aiManager);
         }
 
         RebuildModelsPanel();

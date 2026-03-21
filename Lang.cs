@@ -216,6 +216,11 @@ public static class Lang
             ["note_saved"] = "Note saved!",
             ["voice_model_not_configured"] = "Voice model not configured",
             ["configure_model_hint"] = "Configure a model in Settings → Model",
+            ["groq_cloud_section"] = "Groq Cloud (Whisper)",
+            ["groq_api_key"] = "Groq API Key",
+            ["groq_api_key_placeholder"] = "gsk_...",
+            ["groq_cloud_model"] = "Cloud — API",
+            ["groq_key_required"] = "Groq API key required",
 
             // ── Tooltips ────────────────────────────────────────
             ["tip_new"] = "New",
@@ -508,6 +513,11 @@ public static class Lang
             ["note_saved"] = "Note enregistrée !",
             ["voice_model_not_configured"] = "Modèle vocal non configuré",
             ["configure_model_hint"] = "Configurez un modèle dans Paramètres → Modèle",
+            ["groq_cloud_section"] = "Groq Cloud (Whisper)",
+            ["groq_api_key"] = "Clé API Groq",
+            ["groq_api_key_placeholder"] = "gsk_...",
+            ["groq_cloud_model"] = "Cloud — API",
+            ["groq_key_required"] = "Clé API Groq requise",
 
             // ── Tooltips ────────────────────────────────────────
             ["tip_new"] = "Nouveau",

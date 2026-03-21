@@ -638,7 +638,8 @@ public static class ActionPanel
 
     public static void ShowVoiceModelsPanel(Flyout flyout, string? currentModelId,
         XamlRoot xamlRoot,
-        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild)
+        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild,
+        AiManager? aiManager = null)
     {
         var panel = CreateSubPanelWithHeader(Lang.T("voice_model"), onBack);
 
@@ -664,7 +665,157 @@ public static class ActionPanel
         foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
             panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
 
+        // Groq Cloud section
+        if (aiManager != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("groq_cloud_section"),
+                Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+                Opacity = 0.6,
+                Margin = new Thickness(10, 8, 0, 4)
+            });
+
+            var hasKey = aiManager.HasApiKey("groq");
+
+            // API key input
+            var keyBlock = new StackPanel { Margin = new Thickness(10, 4, 10, 4), Spacing = 3 };
+
+            var nameRow = new Grid();
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameText = new TextBlock
+            {
+                Text = Lang.T("groq_api_key"),
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(nameText, 0);
+
+            var statusIcon = new FontIcon
+            {
+                Glyph = hasKey ? "\uE73E" : "\uE785",
+                FontSize = 12,
+                Foreground = hasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(statusIcon, 1);
+            nameRow.Children.Add(nameText);
+            nameRow.Children.Add(statusIcon);
+            keyBlock.Children.Add(nameRow);
+
+            var keyRow = new Grid();
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var keyBox = new PasswordBox
+            {
+                PlaceholderText = Lang.T("groq_api_key_placeholder"),
+                Password = aiManager.GetApiKey("groq"),
+                FontSize = 11,
+                MaxWidth = 200,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            Grid.SetColumn(keyBox, 0);
+
+            var saveKeyBtn = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE73E", FontSize = 12 },
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(4, 0, 0, 0),
+            };
+            Grid.SetColumn(saveKeyBtn, 1);
+
+            saveKeyBtn.Click += (_, _) =>
+            {
+                aiManager.SetApiKey("groq", keyBox.Password);
+                var nowHasKey = aiManager.HasApiKey("groq");
+                statusIcon.Glyph = nowHasKey ? "\uE73E" : "\uE785";
+                statusIcon.Foreground = nowHasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+                onRebuild();
+            };
+
+            keyRow.Children.Add(keyBox);
+            keyRow.Children.Add(saveKeyBtn);
+            keyBlock.Children.Add(keyRow);
+            panel.Children.Add(keyBlock);
+
+            // Groq cloud models (only show if key exists)
+            if (hasKey)
+            {
+                foreach (var model in SttModels.Available.Where(m => m.Engine == SttEngine.GroqCloud))
+                    panel.Children.Add(CreateGroqModelItem(model, currentModelId, onSelectModel, flyout));
+            }
+        }
+
         flyout.Content = panel;
+    }
+
+    private static UIElement CreateGroqModelItem(SttModelInfo model, string? currentModelId,
+        Action<SttModelInfo> onSelect, Flyout parentFlyout)
+    {
+        var isCurrent = model.Id == currentModelId;
+
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 7, 10, 7),
+            CornerRadius = new CornerRadius(5),
+            Tag = model.Name
+        };
+
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textPanel = new StackPanel { Spacing = 1 };
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = model.Name,
+            FontSize = 13,
+            FontWeight = isCurrent
+                ? Microsoft.UI.Text.FontWeights.SemiBold
+                : Microsoft.UI.Text.FontWeights.Normal,
+        });
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = isCurrent ? $"Groq — {Lang.T("model_active")}" : $"Groq — {Lang.T("groq_cloud_model")}",
+            FontSize = 11,
+            Opacity = isCurrent ? 0.85 : 0.45
+        });
+        Grid.SetColumn(textPanel, 0);
+        grid.Children.Add(textPanel);
+
+        var icon = new FontIcon
+        {
+            Glyph = isCurrent ? "\uE73E" : "\uE753", // checkmark or cloud
+            FontSize = isCurrent ? 14 : 12,
+            Foreground = isCurrent
+                ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 1);
+        grid.Children.Add(icon);
+
+        btn.Content = grid;
+        btn.Click += (_, _) =>
+        {
+            onSelect(model);
+            parentFlyout.Hide();
+        };
+
+        return btn;
     }
 
     private static UIElement CreateModelItem(SttModelInfo model, string? currentModelId,
