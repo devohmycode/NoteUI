@@ -7,6 +7,7 @@ public static class RuntimeSecrets
     private const string FirebaseUrlEnv = "NOTEUI_FIREBASE_URL";
     private const string FirebaseApiKeyEnv = "NOTEUI_FIREBASE_API_KEY";
     private const string GoogleClientIdEnv = "NOTEUI_GOOGLE_CLIENT_ID";
+    private const string GoogleClientSecretEnv = "NOTEUI_GOOGLE_CLIENT_SECRET";
     private const string BundledConfigFileName = "firebase.public.json";
 
     public static bool TryGetFirebaseConfig(out string firebaseUrl, out string firebaseApiKey)
@@ -33,13 +34,22 @@ public static class RuntimeSecrets
         return !string.IsNullOrWhiteSpace(googleClientId);
     }
 
-    private static (string FirebaseUrl, string FirebaseApiKey, string GoogleClientId) LoadBundledConfig()
+    public static bool TryGetGoogleClientSecret(out string googleClientSecret)
+    {
+        var bundled = LoadBundledConfig();
+        googleClientSecret = FirstNonEmpty(
+            Environment.GetEnvironmentVariable(GoogleClientSecretEnv),
+            bundled.GoogleClientSecret);
+        return !string.IsNullOrWhiteSpace(googleClientSecret);
+    }
+
+    private static (string FirebaseUrl, string FirebaseApiKey, string GoogleClientId, string GoogleClientSecret) LoadBundledConfig()
     {
         try
         {
             var configPath = Path.Combine(AppContext.BaseDirectory, BundledConfigFileName);
             if (!File.Exists(configPath))
-                return ("", "", "");
+                return ("", "", "", "");
 
             using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
             var root = doc.RootElement;
@@ -47,11 +57,12 @@ public static class RuntimeSecrets
             return (
                 GetString(root, "firebaseUrl"),
                 GetString(root, "firebaseApiKey"),
-                GetString(root, "googleClientId"));
+                GetString(root, "googleClientId"),
+                GetString(root, "googleClientSecret"));
         }
         catch
         {
-            return ("", "", "");
+            return ("", "", "", "");
         }
     }
 

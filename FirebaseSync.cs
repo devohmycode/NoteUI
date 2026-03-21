@@ -167,6 +167,7 @@ public class FirebaseSync : IDisposable
         if (!IsConfigured) return (false, Lang.T("firebase_not_configured"));
         if (!RuntimeSecrets.TryGetGoogleClientId(out var googleClientId))
             return (false, Lang.T("firebase_google_not_configured"));
+        RuntimeSecrets.TryGetGoogleClientSecret(out var googleClientSecret);
         try
         {
             // Generate PKCE code verifier + challenge
@@ -227,6 +228,7 @@ public class FirebaseSync : IDisposable
             {
                 ["code"] = code,
                 ["client_id"] = googleClientId,
+                ["client_secret"] = googleClientSecret ?? "",
                 ["redirect_uri"] = redirectUri,
                 ["grant_type"] = "authorization_code",
                 ["code_verifier"] = codeVerifier
@@ -236,7 +238,11 @@ public class FirebaseSync : IDisposable
 
             if (!tokenResponse.IsSuccessStatusCode)
             {
-                return (false, $"Erreur token Google: {tokenResponse.StatusCode}");
+                var detail = await FormatGoogleOAuthTokenErrorAsync(tokenResponse);
+                return (false,
+                    string.IsNullOrEmpty(detail)
+                        ? $"Erreur token Google: {tokenResponse.StatusCode}"
+                        : $"Erreur token Google: {tokenResponse.StatusCode} — {detail}");
             }
 
             var tokenJson = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
@@ -263,6 +269,31 @@ public class FirebaseSync : IDisposable
             return (true, null);
         }
         catch (Exception ex) { return (false, ex.Message); }
+    }
+
+    /// <summary>Google returns JSON: error, error_description (e.g. redirect_uri_mismatch).</summary>
+    private static async Task<string> FormatGoogleOAuthTokenErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var text = await response.Content.ReadAsStringAsync();
+            if (string.IsNullOrWhiteSpace(text))
+                return "";
+
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var err = root.TryGetProperty("error", out var e) ? e.GetString() : null;
+            var desc = root.TryGetProperty("error_description", out var d) ? d.GetString() : null;
+            if (!string.IsNullOrEmpty(desc))
+                return string.IsNullOrEmpty(err) ? desc : $"{err}: {desc}";
+            if (!string.IsNullOrEmpty(err))
+                return err;
+            return text.Length > 200 ? text[..200] + "…" : text;
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static int FindFreePort()
