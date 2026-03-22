@@ -185,6 +185,9 @@ public class NotesManager
             ["theme"] = AppSettings.LoadThemeSetting(),
             ["backdrop"] = AppSettings.LoadSettings().Type,
         };
+        var masterPwHash = AppSettings.LoadMasterPasswordHash();
+        if (!string.IsNullOrEmpty(masterPwHash))
+            settings["masterPasswordHash"] = masterPwHash;
         await Firebase.PushSettingsAsync(settings);
     }
 
@@ -210,6 +213,12 @@ public class NotesManager
             var theme = themeEl.GetString();
             if (!string.IsNullOrEmpty(theme))
                 AppSettings.SaveThemeSetting(theme);
+        }
+        if (remote.TryGetValue("masterPasswordHash", out var mpEl))
+        {
+            var hash = mpEl.GetString();
+            if (!string.IsNullOrEmpty(hash))
+                AppSettings.SaveMasterPasswordHash(hash);
         }
         if (remote.TryGetValue("backdrop", out var backdropEl))
         {
@@ -357,6 +366,7 @@ public class NotesManager
             Title = source.Title,
             Content = source.Content,
             Color = source.Color,
+            IsLocked = source.IsLocked,
             NoteType = source.NoteType,
             Tasks = source.Tasks.Select(t => new TaskItem { Text = t.Text, IsDone = t.IsDone }).ToList(),
             CreatedAt = DateTime.Now,
@@ -371,6 +381,12 @@ public class NotesManager
     public void DeleteNote(string id)
     {
         _notes.RemoveAll(n => n.Id == id);
+        Save();
+    }
+
+    public void DeleteAllNotes()
+    {
+        _notes.Clear();
         Save();
     }
 
@@ -396,6 +412,15 @@ public class NotesManager
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note == null) return;
         note.IsArchived = !note.IsArchived;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public void ToggleLock(string id)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.IsLocked = !note.IsLocked;
         note.UpdatedAt = DateTime.Now;
         Save();
     }
@@ -453,6 +478,7 @@ public class NoteEntry
     public bool IsPinned { get; set; }
     public bool IsFavorite { get; set; }
     public bool IsArchived { get; set; }
+    public bool IsLocked { get; set; }
     public List<string> Tags { get; set; } = [];
     public DateTime? ReminderAt { get; set; }
     public string NoteType { get; set; } = "note"; // "note" or "tasklist"

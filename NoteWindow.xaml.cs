@@ -116,6 +116,8 @@ public sealed partial class NoteWindow : Window
         _noteStyle = AppSettings.LoadNoteStyle();
         ApplyNoteColor(note.Color);
         TitleText.Text = note.Title;
+        LockIcon.Glyph = note.IsLocked ? "\uE785" : "\uE72E";
+        ToolTipService.SetToolTip(LockButton, Lang.T("lock_note"));
         UpdateMenuIcon();
         ApplyNoteLocalization();
         RefreshAiUi();
@@ -347,6 +349,7 @@ public sealed partial class NoteWindow : Window
             : new SolidColorBrush(Microsoft.UI.Colors.Black);
         MenuIcon.Foreground = titleForeground;
         TitleText.Foreground = titleForeground;
+        LockIcon.Foreground = titleForeground;
         CompactIcon.Foreground = titleForeground;
         PinIcon.Foreground = titleForeground;
         CloseIcon.Foreground = titleForeground;
@@ -2100,6 +2103,37 @@ public sealed partial class NoteWindow : Window
             presenter.IsAlwaysOnTop = _isPinnedOnTop;
 
         PinIcon.Glyph = _isPinnedOnTop ? "\uE77A" : "\uE718";
+    }
+
+    private void Lock_Click(object sender, RoutedEventArgs e)
+    {
+        if (_note.IsLocked)
+        {
+            SaveCurrentNote();
+            this.Close();
+            return;
+        }
+
+        if (!AppSettings.HasMasterPassword())
+        {
+            ActionPanel.ShowCreatePasswordFlyout(LockButton, password =>
+            {
+                var hash = AppSettings.HashPassword(password);
+                AppSettings.SaveMasterPasswordHash(hash);
+                _notesManager.ToggleLock(_note.Id);
+                NoteChanged?.Invoke();
+                _ = _notesManager.SyncSettingsToFirebase();
+                SaveCurrentNote();
+                this.Close();
+            });
+        }
+        else
+        {
+            _notesManager.ToggleLock(_note.Id);
+            NoteChanged?.Invoke();
+            SaveCurrentNote();
+            this.Close();
+        }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)

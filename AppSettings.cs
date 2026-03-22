@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
@@ -32,6 +34,48 @@ public static class AppSettings
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI");
 
     public static string GetDefaultNotesFolder() => DefaultNotesFolder;
+
+    // ── Master Password (DPAPI) ─────────────────────────────────
+
+    private static readonly string MasterPasswordPath = Path.Combine(SettingsDir, "master_pw.dat");
+
+    public static bool HasMasterPassword() => File.Exists(MasterPasswordPath);
+
+    public static void SaveMasterPasswordHash(string sha256Hash)
+    {
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            var bytes = Encoding.UTF8.GetBytes(sha256Hash);
+            var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+            File.WriteAllBytes(MasterPasswordPath, encrypted);
+        }
+        catch { }
+    }
+
+    public static string? LoadMasterPasswordHash()
+    {
+        try
+        {
+            if (!File.Exists(MasterPasswordPath)) return null;
+            var encrypted = File.ReadAllBytes(MasterPasswordPath);
+            var decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(decrypted);
+        }
+        catch { return null; }
+    }
+
+    public static void DeleteMasterPassword()
+    {
+        try { if (File.Exists(MasterPasswordPath)) File.Delete(MasterPasswordPath); } catch { }
+    }
+
+    public static string HashPassword(string password)
+    {
+        var bytes = Encoding.UTF8.GetBytes(password);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
 
     // ── Language ────────────────────────────────────────────────
 

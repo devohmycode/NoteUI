@@ -223,6 +223,9 @@ public sealed partial class MainWindow : Window
         {
             if (window.Type == "note" && !string.IsNullOrWhiteSpace(window.NoteId))
             {
+                var noteForRestore = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+                if (noteForRestore?.IsLocked == true)
+                    continue;
                 OpenNote(window.NoteId);
                 var opened = _openNoteWindows.FirstOrDefault(w => w.NoteId == window.NoteId);
                 if (opened != null)
@@ -305,6 +308,16 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
+        if (note.IsLocked)
+        {
+            metaPanel.Children.Add(new FontIcon
+            {
+                Glyph = "\uE72E",
+                FontSize = 10,
+                Opacity = 0.45,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
         if (!string.IsNullOrEmpty(note.TaskProgress))
         {
             metaPanel.Children.Add(new TextBlock
@@ -327,34 +340,47 @@ public sealed partial class MainWindow : Window
         content.Children.Add(titleRow);
 
         // Preview text
-        var preview = note.Preview;
-        if (!string.IsNullOrEmpty(preview))
+        if (note.IsLocked)
         {
             content.Children.Add(new TextBlock
             {
-                Text = preview,
-                TextWrapping = TextWrapping.Wrap,
-                MaxLines = 3,
-                TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
                 FontSize = 12,
                 Margin = new Thickness(0, 2, 0, 0),
-                Opacity = 0.65,
+                Opacity = 0.35,
             });
         }
-
-        // Image thumbnail (first embedded screenshot)
-        var imageBytes = note.ExtractFirstImageBytes();
-        if (imageBytes != null)
+        else
         {
-            var img = new Image
+            var preview = note.Preview;
+            if (!string.IsNullOrEmpty(preview))
             {
-                MaxHeight = 60,
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 6, 0, 0),
-            };
-            content.Children.Add(img);
-            _ = LoadThumbnailAsync(img, imageBytes);
+                content.Children.Add(new TextBlock
+                {
+                    Text = preview,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxLines = 3,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 2, 0, 0),
+                    Opacity = 0.65,
+                });
+            }
+
+            // Image thumbnail (first embedded screenshot)
+            var imageBytes = note.ExtractFirstImageBytes();
+            if (imageBytes != null)
+            {
+                var img = new Image
+                {
+                    MaxHeight = 60,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 6, 0, 0),
+                };
+                content.Children.Add(img);
+                _ = LoadThumbnailAsync(img, imageBytes);
+            }
         }
 
         stack.Children.Add(content);
@@ -412,6 +438,11 @@ public sealed partial class MainWindow : Window
             {
                 ActionPanel.ShowSnippetFlyout(target, noteId, _snippetManager, note?.Content ?? "");
             }),
+            new(note?.IsLocked == true ? "\uE785" : "\uE72E",
+                note?.IsLocked == true ? Lang.T("unlock") : Lang.T("lock"), [], () =>
+            {
+                HandleLockToggle(noteId, target);
+            }),
             new("\uE7B8", note?.IsArchived == true ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
             {
                 _notes.ToggleArchive(noteId);
@@ -433,7 +464,68 @@ public sealed partial class MainWindow : Window
         flyout.ShowAt(target);
     }
 
+    private void HandleLockToggle(string noteId, FrameworkElement target)
+    {
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+        if (note == null) return;
+
+        if (note.IsLocked)
+        {
+            var storedHash = AppSettings.LoadMasterPasswordHash();
+            if (string.IsNullOrEmpty(storedHash)) return;
+            ActionPanel.ShowEnterPasswordFlyout(target, storedHash, () =>
+            {
+                _notes.ToggleLock(noteId);
+                RefreshCurrentView();
+            });
+            return;
+        }
+
+        if (!AppSettings.HasMasterPassword())
+        {
+            ActionPanel.ShowCreatePasswordFlyout(target, password =>
+            {
+                var hash = AppSettings.HashPassword(password);
+                AppSettings.SaveMasterPasswordHash(hash);
+                _notes.ToggleLock(noteId);
+                RefreshCurrentView();
+                _ = _notes.SyncSettingsToFirebase();
+            });
+        }
+        else
+        {
+            _notes.ToggleLock(noteId);
+            RefreshCurrentView();
+        }
+    }
+
     private void OpenNote(string noteId)
+    {
+        var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
+        if (existing != null)
+        {
+            existing.Activate();
+            return;
+        }
+
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+        if (note == null) return;
+
+        if (note.IsLocked)
+        {
+            var storedHash = AppSettings.LoadMasterPasswordHash();
+            if (string.IsNullOrEmpty(storedHash)) return;
+            ActionPanel.ShowEnterPasswordFlyout(NotesList, storedHash, () =>
+            {
+                OpenNoteUnlocked(noteId);
+            });
+            return;
+        }
+
+        OpenNoteUnlocked(noteId);
+    }
+
+    private void OpenNoteUnlocked(string noteId)
     {
         var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
         if (existing != null)
@@ -612,6 +704,18 @@ public sealed partial class MainWindow : Window
                     if (w.Content is FrameworkElement noteRoot)
                         AppSettings.ApplyFontToTree(noteRoot, fontFamily);
                 _ = _notes.SyncSettingsToFirebase();
+            },
+            onResetPassword: () =>
+            {
+                AppSettings.DeleteMasterPassword();
+            },
+            onResetNotes: () =>
+            {
+                foreach (var w in _openNoteWindows.ToList())
+                    try { w.Close(); } catch { }
+                _openNoteWindows.Clear();
+                _notes.DeleteAllNotes();
+                RefreshCurrentView();
             });
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
