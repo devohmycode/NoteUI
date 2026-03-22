@@ -196,7 +196,9 @@ public static class ActionPanel
         Action<Flyout>? onShowShortcuts = null,
         string? currentLanguage = null, bool slashEnabled = true,
         Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null,
-        Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null)
+        Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null,
+        string? currentNoteStyle = null, Action<string>? onNoteStyleSelected = null,
+        string? currentFont = null, Action<string>? onFontSelected = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -204,228 +206,110 @@ public static class ActionPanel
         var panel = new StackPanel { Spacing = 0 };
         var allButtons = new List<Button>();
 
-        // Theme section
-        panel.Children.Add(CreateHeader(Lang.T("theme")));
-        panel.Children.Add(CreateSeparator());
+        static string FindLabel((string key, string label)[] items, string current)
+        {
+            foreach (var (k, l) in items) if (k == current) return l;
+            return "";
+        }
 
+        // Theme
         var themes = new[] { ("system", Lang.T("theme_system")), ("light", Lang.T("theme_light")), ("dark", Lang.T("theme_dark")) };
-        foreach (var (key, label) in themes)
+        var themeBtn = CreateCascadeButton(Lang.T("theme"), FindLabel(themes, currentTheme),
+            CreateRadioSubMenu("Theme", themes, currentTheme, k => { onThemeSelected(k); flyout.Hide(); }));
+        allButtons.Add(themeBtn);
+        panel.Children.Add(themeBtn);
+
+        // Backdrop
+        var backdrops = new[] { ("acrylic", "Acrylic"), ("mica", "Mica"), ("mica_alt", "MicaAlt"), ("acrylic_custom", Lang.T("backdrop_acrylic_custom")), ("none", Lang.T("backdrop_none")) };
+        var backdropBtn = CreateCascadeButton(Lang.T("backdrop"), FindLabel(backdrops, currentBackdropType),
+            CreateRadioSubMenu("Backdrop", backdrops, currentBackdropType, k => { onBackdropSelected(k); flyout.Hide(); }));
+        allButtons.Add(backdropBtn);
+        panel.Children.Add(backdropBtn);
+
+        // Note style
+        if (onNoteStyleSelected != null)
         {
-            var k = key;
-            var btn = CreateCheckItem(label, key == currentTheme, () =>
-            {
-                onThemeSelected(k);
-                flyout.Hide();
-            });
-            allButtons.Add(btn);
-            panel.Children.Add(btn);
+            var noteStyles = new[] { ("titlebar", Lang.T("note_style_titlebar")), ("full", Lang.T("note_style_full")) };
+            var noteStyle = currentNoteStyle ?? "titlebar";
+            var noteBtn = CreateCascadeButton(Lang.T("note_section"), FindLabel(noteStyles, noteStyle),
+                CreateRadioSubMenu("NoteStyle", noteStyles, noteStyle, k => { onNoteStyleSelected(k); flyout.Hide(); }));
+            noteBtn.Tag = Lang.T("note_section") + " Couleur Note";
+            allButtons.Add(noteBtn);
+            panel.Children.Add(noteBtn);
         }
 
-        // Backdrop section
-        panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader(Lang.T("backdrop")));
-        panel.Children.Add(CreateSeparator());
-
-        var backdrops = new[]
+        // Font
+        if (onFontSelected != null)
         {
-            ("acrylic", "Acrylic"),
-            ("mica", "Mica"),
-            ("mica_alt", "MicaAlt"),
-            ("acrylic_custom", Lang.T("backdrop_acrylic_custom")),
-            ("none", Lang.T("backdrop_none"))
-        };
-        foreach (var (key, label) in backdrops)
-        {
-            var k = key;
-            var btn = CreateCheckItem(label, key == currentBackdropType, () =>
-            {
-                onBackdropSelected(k);
-                flyout.Hide();
-            });
-            allButtons.Add(btn);
-            panel.Children.Add(btn);
+            var fonts = new[] { ("segoe", "Segoe UI"), ("geist", "Geist"), ("inter", "Inter"), ("jetbrains", "JetBrains Mono") };
+            var font = currentFont ?? "geist";
+            var fontBtn = CreateCascadeButton(Lang.T("font_section"), FindLabel(fonts, font),
+                CreateRadioSubMenu("Font", fonts, font, k => { onFontSelected(k); flyout.Hide(); }));
+            fontBtn.Tag = Lang.T("font_section") + " Police Font Geist Inter Segoe JetBrains";
+            allButtons.Add(fontBtn);
+            panel.Children.Add(fontBtn);
         }
 
-        // Storage section
-        panel.Children.Add(CreateSeparator());
-        panel.Children.Add(CreateHeader(Lang.T("storage")));
         panel.Children.Add(CreateSeparator());
 
+        // Storage
         var isCustomFolder = !string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
+        var storageSubMenu = CreateStorageSubMenu(
+            isCustomFolder, isFirebaseConnected, isWebDavConnected,
+            currentNotesFolder, firebaseEmail, webDavUrl,
+            onResetFolder, onChangeFolder,
+            onConfigureFirebase, onDisconnectFirebase, onSyncFirebase,
+            onConfigureWebDav, onDisconnectWebDav, onSyncWebDav,
+            () => flyout.Hide());
+        var storageValue = isFirebaseConnected ? Lang.T("cloud")
+            : isWebDavConnected ? "WebDAV"
+            : isCustomFolder ? Lang.T("custom_folder")
+            : Lang.T("local");
+        var storageBtn = CreateCascadeButton(Lang.T("storage"), storageValue, storageSubMenu);
+        storageBtn.Tag = Lang.T("storage") + " Cloud Firebase WebDAV Local";
+        allButtons.Add(storageBtn);
+        panel.Children.Add(storageBtn);
 
-        // Local option
-        var localBtn = CreateCheckItem(Lang.T("local"), !isFirebaseConnected && !isCustomFolder, () =>
-        {
-            if (isCustomFolder) { onResetFolder(); flyout.Hide(); }
-            else if (isFirebaseConnected) { onDisconnectFirebase(); flyout.Hide(); }
-        });
-        localBtn.Tag = Lang.T("local");
-        allButtons.Add(localBtn);
-        panel.Children.Add(localBtn);
+        panel.Children.Add(CreateSeparator());
 
-        if (isCustomFolder)
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = ShortenPath(currentNotesFolder),
-                FontSize = 11,
-                Opacity = 0.45,
-                Margin = new Thickness(12, 0, 12, 4),
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-        }
-
-        // Dossier option
-        var folderBtn = CreateCheckItem(Lang.T("custom_folder"), isCustomFolder && !isFirebaseConnected, () =>
-        {
-            onChangeFolder();
-            flyout.Hide();
-        });
-        folderBtn.Tag = Lang.T("custom_folder");
-        allButtons.Add(folderBtn);
-        panel.Children.Add(folderBtn);
-
-        // Cloud (Firebase) option
-        if (isFirebaseConnected)
-        {
-            var cloudBtn = CreateCheckItem(Lang.T("cloud"), true, () =>
-            {
-                onSyncFirebase();
-                flyout.Hide();
-            });
-            cloudBtn.Tag = Lang.T("cloud");
-            allButtons.Add(cloudBtn);
-            panel.Children.Add(cloudBtn);
-
-            if (!string.IsNullOrEmpty(firebaseEmail))
-            {
-                panel.Children.Add(new TextBlock
-                {
-                    Text = firebaseEmail,
-                    FontSize = 11,
-                    Opacity = 0.45,
-                    Margin = new Thickness(12, 0, 12, 4),
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                });
-            }
-
-            var disconnectBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
-            {
-                onDisconnectFirebase();
-                flyout.Hide();
-            });
-            disconnectBtn.Tag = Lang.T("disconnect") + " Cloud";
-            allButtons.Add(disconnectBtn);
-            panel.Children.Add(disconnectBtn);
-        }
-        else
-        {
-            var connectBtn = CreateCheckItem(Lang.T("cloud"), false, () =>
-            {
-                onConfigureFirebase();
-                flyout.Hide();
-            });
-            connectBtn.Tag = Lang.T("cloud");
-            allButtons.Add(connectBtn);
-            panel.Children.Add(connectBtn);
-        }
-
-        // WebDAV / Nextcloud
-        if (isWebDavConnected)
-        {
-            var webdavBtn = CreateCheckItem("WebDAV", true, () =>
-            {
-                onSyncWebDav();
-                flyout.Hide();
-            });
-            webdavBtn.Tag = "WebDAV Nextcloud";
-            allButtons.Add(webdavBtn);
-            panel.Children.Add(webdavBtn);
-
-            if (!string.IsNullOrEmpty(webDavUrl))
-            {
-                panel.Children.Add(new TextBlock
-                {
-                    Text = ShortenPath(webDavUrl),
-                    FontSize = 11,
-                    Opacity = 0.45,
-                    Margin = new Thickness(12, 0, 12, 4),
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                });
-            }
-
-            var disconnectWdBtn = CreateCheckItem(Lang.T("disconnect"), false, () =>
-            {
-                onDisconnectWebDav();
-                flyout.Hide();
-            });
-            disconnectWdBtn.Tag = Lang.T("disconnect") + " WebDAV";
-            allButtons.Add(disconnectWdBtn);
-            panel.Children.Add(disconnectWdBtn);
-        }
-        else
-        {
-            var connectWdBtn = CreateCheckItem("WebDAV", false, () =>
-            {
-                onConfigureWebDav();
-                flyout.Hide();
-            });
-            connectWdBtn.Tag = "WebDAV Nextcloud";
-            allButtons.Add(connectWdBtn);
-            panel.Children.Add(connectWdBtn);
-        }
-
-        // AI section
+        // AI
         if (onShowAi != null)
         {
-            panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader(Lang.T("ai_section")));
-            panel.Children.Add(CreateSeparator());
-            var aiBtn = CreateCheckItem(Lang.T("ai_label"), false, () => onShowAi(flyout));
+            var aiBtn = CreateNavigateButton(Lang.T("ai_label"), () => onShowAi(flyout));
             aiBtn.Tag = Lang.T("ai_label") + " IA AI OpenAI Claude Gemini GGUF";
             allButtons.Add(aiBtn);
             panel.Children.Add(aiBtn);
 
             if (onShowPrompts != null)
             {
-                var promptsBtn = CreateCheckItem(Lang.T("ai_prompts"), false, () => onShowPrompts(flyout));
+                var promptsBtn = CreateNavigateButton(Lang.T("ai_prompts"), () => onShowPrompts(flyout));
                 promptsBtn.Tag = Lang.T("ai_prompts") + " prompt IA AI";
                 allButtons.Add(promptsBtn);
                 panel.Children.Add(promptsBtn);
             }
         }
 
-        // Voice model section
+        // Voice
         if (onShowVoiceModels != null)
         {
-            panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader(Lang.T("voice_section")));
-            panel.Children.Add(CreateSeparator());
-            var voiceBtn = CreateCheckItem(Lang.T("voice_model"), false, () => onShowVoiceModels(flyout));
+            var voiceBtn = CreateNavigateButton(Lang.T("voice_model"), () => onShowVoiceModels(flyout));
             voiceBtn.Tag = Lang.T("voice_model") + " TTS STT";
             allButtons.Add(voiceBtn);
             panel.Children.Add(voiceBtn);
         }
 
-        // Shortcuts section
+        // Shortcuts
         if (onShowShortcuts != null)
         {
-            panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader(Lang.T("shortcuts_section")));
-            panel.Children.Add(CreateSeparator());
-            var shortcutsBtn = CreateCheckItem(Lang.T("shortcuts_label"), false, () => onShowShortcuts(flyout));
+            var shortcutsBtn = CreateNavigateButton(Lang.T("shortcuts_label"), () => onShowShortcuts(flyout));
             shortcutsBtn.Tag = Lang.T("shortcuts_label") + " Raccourcis clavier";
             allButtons.Add(shortcutsBtn);
             panel.Children.Add(shortcutsBtn);
         }
 
-        // Editor section (slash commands toggle)
+        // Editor (slash toggle)
         if (onSlashToggled != null)
         {
-            panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader(Lang.T("editor_section")));
-            panel.Children.Add(CreateSeparator());
-
             var slashBtn = CreateCheckItem(Lang.T("slash_commands_toggle"), slashEnabled, () =>
             {
                 onSlashToggled(!slashEnabled);
@@ -436,26 +320,16 @@ public static class ActionPanel
             panel.Children.Add(slashBtn);
         }
 
-        // Language section
+        panel.Children.Add(CreateSeparator());
+
+        // Language
         if (onLanguageSelected != null)
         {
-            panel.Children.Add(CreateSeparator());
-            panel.Children.Add(CreateHeader(Lang.T("language_section")));
-            panel.Children.Add(CreateSeparator());
-
             var langs = new[] { ("en", Lang.T("language_en")), ("fr", Lang.T("language_fr")) };
-            foreach (var (code, label) in langs)
-            {
-                var c = code;
-                var btn = CreateCheckItem(label, code == (currentLanguage ?? "en"), () =>
-                {
-                    onLanguageSelected(c);
-                    flyout.Hide();
-                });
-                btn.Tag = label;
-                allButtons.Add(btn);
-                panel.Children.Add(btn);
-            }
+            var langBtn = CreateCascadeButton(Lang.T("language_section"), FindLabel(langs, currentLanguage ?? "en"),
+                CreateRadioSubMenu("Language", langs, currentLanguage ?? "en", c => { onLanguageSelected(c); flyout.Hide(); }));
+            allButtons.Add(langBtn);
+            panel.Children.Add(langBtn);
         }
 
         // Search
@@ -485,6 +359,170 @@ public static class ActionPanel
 
         flyout.Content = panel;
         return flyout;
+    }
+
+    private static Flyout CreateRadioSubMenu(string groupName,
+        (string key, string label)[] options, string currentKey, Action<string> onSelected)
+    {
+        var flyout = new Flyout
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.RightEdgeAlignedTop,
+            FlyoutPresenterStyle = CreateFlyoutPresenterStyle(180, 260)
+        };
+
+        var panel = new StackPanel { Spacing = 0 };
+        foreach (var (key, label) in options)
+        {
+            var k = key;
+            var btn = CreateCheckItem(label, key == currentKey, () => onSelected(k));
+            panel.Children.Add(btn);
+        }
+        flyout.Content = panel;
+        return flyout;
+    }
+
+    private static Flyout CreateStorageSubMenu(
+        bool isCustomFolder, bool isFirebaseConnected, bool isWebDavConnected,
+        string currentNotesFolder, string? firebaseEmail, string? webDavUrl,
+        Action onResetFolder, Action onChangeFolder,
+        Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
+        Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        Action onDone)
+    {
+        var flyout = new Flyout
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.RightEdgeAlignedTop,
+            FlyoutPresenterStyle = CreateFlyoutPresenterStyle(200, 300)
+        };
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        bool isLocal = !isFirebaseConnected && !isWebDavConnected && !isCustomFolder;
+        panel.Children.Add(CreateCheckItem(Lang.T("local"), isLocal, () =>
+        {
+            if (isCustomFolder) onResetFolder(); else if (isFirebaseConnected) onDisconnectFirebase();
+            onDone();
+        }));
+
+        var folderLabel = isCustomFolder ? $"{Lang.T("custom_folder")} — {ShortenPath(currentNotesFolder)}" : Lang.T("custom_folder");
+        panel.Children.Add(CreateCheckItem(folderLabel, isCustomFolder && !isFirebaseConnected, () =>
+        {
+            onChangeFolder(); onDone();
+        }));
+
+        panel.Children.Add(CreateSeparator());
+
+        if (isFirebaseConnected)
+        {
+            var cloudLabel = !string.IsNullOrEmpty(firebaseEmail) ? $"{Lang.T("cloud")} — {firebaseEmail}" : Lang.T("cloud");
+            panel.Children.Add(CreateCheckItem(cloudLabel, true, () => { onSyncFirebase(); onDone(); }));
+            panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectFirebase(); onDone(); }));
+        }
+        else
+        {
+            panel.Children.Add(CreateCheckItem(Lang.T("cloud"), false, () => { onConfigureFirebase(); onDone(); }));
+        }
+
+        if (isWebDavConnected)
+        {
+            var wdLabel = !string.IsNullOrEmpty(webDavUrl) ? $"WebDAV — {ShortenPath(webDavUrl)}" : "WebDAV";
+            panel.Children.Add(CreateCheckItem(wdLabel, true, () => { onSyncWebDav(); onDone(); }));
+            panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectWebDav(); onDone(); }));
+        }
+        else
+        {
+            panel.Children.Add(CreateCheckItem("WebDAV", false, () => { onConfigureWebDav(); onDone(); }));
+        }
+
+        flyout.Content = panel;
+        return flyout;
+    }
+
+    private static Button CreateActionItem(string label, Action handler)
+    {
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0
+        };
+        btn.Content = new TextBlock { Text = label, FontSize = 12, Opacity = 0.7 };
+        btn.Click += (_, _) => handler();
+        return btn;
+    }
+
+    private static Button CreateCascadeButton(string label, string currentValue, Flyout subMenu)
+    {
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 5, 8, 5),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
+            Flyout = subMenu,
+            Tag = label + " " + currentValue
+        };
+
+        var grid = new Grid { ColumnSpacing = 6 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 0);
+        grid.Children.Add(text);
+
+        if (!string.IsNullOrEmpty(currentValue))
+        {
+            var value = new TextBlock { Text = currentValue, FontSize = 11, Opacity = 0.45, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(value, 1);
+            grid.Children.Add(value);
+        }
+
+        var chevron = new FontIcon { Glyph = "\uE76C", FontSize = 9, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(chevron, 2);
+        grid.Children.Add(chevron);
+
+        btn.Content = grid;
+        return btn;
+    }
+
+    private static Button CreateNavigateButton(string label, Action handler)
+    {
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 5, 8, 5),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
+            Tag = label
+        };
+
+        var grid = new Grid { ColumnSpacing = 6 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 0);
+        grid.Children.Add(text);
+
+        var chevron = new FontIcon { Glyph = "\uE76C", FontSize = 9, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(chevron, 1);
+        grid.Children.Add(chevron);
+
+        btn.Content = grid;
+        btn.Click += (_, _) => handler();
+        return btn;
     }
 
     private static Button CreateCheckItem(string label, bool isSelected, Action handler)
@@ -638,7 +676,8 @@ public static class ActionPanel
 
     public static void ShowVoiceModelsPanel(Flyout flyout, string? currentModelId,
         XamlRoot xamlRoot,
-        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild)
+        Action<SttModelInfo> onSelectModel, Action<SttModelInfo> onDeleteModel, Action onBack, Action onRebuild,
+        AiManager? aiManager = null)
     {
         var panel = CreateSubPanelWithHeader(Lang.T("voice_model"), onBack);
 
@@ -664,7 +703,157 @@ public static class ActionPanel
         foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
             panel.Children.Add(CreateModelItem(model, currentModelId, flyout, xamlRoot, onSelectModel, onDeleteModel, onRebuild));
 
+        // Groq Cloud section
+        if (aiManager != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("groq_cloud_section"),
+                Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+                Opacity = 0.6,
+                Margin = new Thickness(10, 8, 0, 4)
+            });
+
+            var hasKey = aiManager.HasApiKey("groq");
+
+            // API key input
+            var keyBlock = new StackPanel { Margin = new Thickness(10, 4, 10, 4), Spacing = 3 };
+
+            var nameRow = new Grid();
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameText = new TextBlock
+            {
+                Text = Lang.T("groq_api_key"),
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(nameText, 0);
+
+            var statusIcon = new FontIcon
+            {
+                Glyph = hasKey ? "\uE73E" : "\uE785",
+                FontSize = 12,
+                Foreground = hasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(statusIcon, 1);
+            nameRow.Children.Add(nameText);
+            nameRow.Children.Add(statusIcon);
+            keyBlock.Children.Add(nameRow);
+
+            var keyRow = new Grid();
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            keyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var keyBox = new PasswordBox
+            {
+                PlaceholderText = Lang.T("groq_api_key_placeholder"),
+                Password = aiManager.GetApiKey("groq"),
+                FontSize = 11,
+                MaxWidth = 200,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            Grid.SetColumn(keyBox, 0);
+
+            var saveKeyBtn = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE73E", FontSize = 12 },
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(4, 0, 0, 0),
+            };
+            Grid.SetColumn(saveKeyBtn, 1);
+
+            saveKeyBtn.Click += (_, _) =>
+            {
+                aiManager.SetApiKey("groq", keyBox.Password);
+                var nowHasKey = aiManager.HasApiKey("groq");
+                statusIcon.Glyph = nowHasKey ? "\uE73E" : "\uE785";
+                statusIcon.Foreground = nowHasKey
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                    : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+                onRebuild();
+            };
+
+            keyRow.Children.Add(keyBox);
+            keyRow.Children.Add(saveKeyBtn);
+            keyBlock.Children.Add(keyRow);
+            panel.Children.Add(keyBlock);
+
+            // Groq cloud models (only show if key exists)
+            if (hasKey)
+            {
+                foreach (var model in SttModels.Available.Where(m => m.Engine == SttEngine.GroqCloud))
+                    panel.Children.Add(CreateGroqModelItem(model, currentModelId, onSelectModel, flyout));
+            }
+        }
+
         flyout.Content = panel;
+    }
+
+    private static UIElement CreateGroqModelItem(SttModelInfo model, string? currentModelId,
+        Action<SttModelInfo> onSelect, Flyout parentFlyout)
+    {
+        var isCurrent = model.Id == currentModelId;
+
+        var btn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 7, 10, 7),
+            CornerRadius = new CornerRadius(5),
+            Tag = model.Name
+        };
+
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var textPanel = new StackPanel { Spacing = 1 };
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = model.Name,
+            FontSize = 13,
+            FontWeight = isCurrent
+                ? Microsoft.UI.Text.FontWeights.SemiBold
+                : Microsoft.UI.Text.FontWeights.Normal,
+        });
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = isCurrent ? $"Groq — {Lang.T("model_active")}" : $"Groq — {Lang.T("groq_cloud_model")}",
+            FontSize = 11,
+            Opacity = isCurrent ? 0.85 : 0.45
+        });
+        Grid.SetColumn(textPanel, 0);
+        grid.Children.Add(textPanel);
+
+        var icon = new FontIcon
+        {
+            Glyph = isCurrent ? "\uE73E" : "\uE753", // checkmark or cloud
+            FontSize = isCurrent ? 14 : 12,
+            Foreground = isCurrent
+                ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 108, 203, 95))
+                : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 1);
+        grid.Children.Add(icon);
+
+        btn.Content = grid;
+        btn.Click += (_, _) =>
+        {
+            onSelect(model);
+            parentFlyout.Hide();
+        };
+
+        return btn;
     }
 
     private static UIElement CreateModelItem(SttModelInfo model, string? currentModelId,

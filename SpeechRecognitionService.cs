@@ -7,7 +7,7 @@ namespace NoteUI;
 
 // ── Model definitions ────────────────────────────────────────────
 
-public enum SttEngine { Vosk, Whisper }
+public enum SttEngine { Vosk, Whisper, GroqCloud }
 
 public class SttModelInfo
 {
@@ -23,9 +23,12 @@ public class SttModelInfo
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "NoteUI", "models", Id);
 
-    public bool IsDownloaded => Engine == SttEngine.Vosk
-        ? Directory.Exists(ModelDir) && Directory.GetFiles(ModelDir).Length > 0
-        : File.Exists(Path.Combine(ModelDir, $"{Id}.bin"));
+    public bool IsDownloaded => Engine switch
+    {
+        SttEngine.Vosk => Directory.Exists(ModelDir) && Directory.GetFiles(ModelDir).Length > 0,
+        SttEngine.GroqCloud => true, // cloud model, no download needed
+        _ => File.Exists(Path.Combine(ModelDir, $"{Id}.bin")),
+    };
 }
 
 public static class SttModels
@@ -111,6 +114,27 @@ public static class SttModels
             SizeMB = 460,
             Languages = "Fran\u00e7ais",
             WhisperLanguage = "fr"
+        },
+        // Groq Cloud
+        new()
+        {
+            Id = "whisper-large-v3",
+            Name = "Whisper Large v3 (Groq)",
+            Engine = SttEngine.GroqCloud,
+            DownloadUrl = "",
+            SizeMB = 0,
+            Languages = "Multi",
+            WhisperLanguage = "auto"
+        },
+        new()
+        {
+            Id = "whisper-large-v3-turbo",
+            Name = "Whisper Large v3 Turbo (Groq)",
+            Engine = SttEngine.GroqCloud,
+            DownloadUrl = "",
+            SizeMB = 0,
+            Languages = "Multi",
+            WhisperLanguage = "auto"
         },
     ];
 }
@@ -449,14 +473,194 @@ public class WhisperRecognizer : ISpeechRecognizer
     }
 }
 
+// ── Groq Cloud implementation ────────────────────────────────────
+
+public class GroqWhisperRecognizer : ISpeechRecognizer
+{
+    public event Action<string>? OnPartialResult;
+    public event Action<string>? OnFinalResult;
+    public event Action<float>? OnAudioLevel;
+
+    private readonly WaveInEvent _waveIn;
+    private readonly string _apiKey;
+    private readonly string _modelId;
+    private readonly string _language;
+    private readonly List<byte> _audioBuffer = [];
+    private readonly object _bufferLock = new();
+    private CancellationTokenSource? _cts;
+    private Task? _processingTask;
+    private volatile bool _disposed;
+    private const int ChunkSizeBytes = 16000 * 2 * 5; // 5 seconds
+
+    public GroqWhisperRecognizer(string apiKey, string modelId, string language = "auto")
+    {
+        _apiKey = apiKey;
+        _modelId = modelId;
+        _language = language;
+
+        _waveIn = new WaveInEvent
+        {
+            WaveFormat = new WaveFormat(16000, 16, 1),
+            BufferMilliseconds = 100
+        };
+        _waveIn.DataAvailable += OnDataAvailable;
+    }
+
+    public void Start()
+    {
+        _cts = new CancellationTokenSource();
+        _waveIn.StartRecording();
+        _processingTask = ProcessLoopAsync(_cts.Token);
+    }
+
+    public void Stop()
+    {
+        _disposed = true;
+        _waveIn.DataAvailable -= OnDataAvailable;
+        _waveIn.StopRecording();
+        _cts?.Cancel();
+    }
+
+    private void OnDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        if (_disposed) return;
+
+        float sum = 0;
+        for (int i = 0; i < e.BytesRecorded; i += 2)
+        {
+            short sample = BitConverter.ToInt16(e.Buffer, i);
+            float normalized = sample / 32768f;
+            sum += normalized * normalized;
+        }
+        var rms = MathF.Sqrt(sum / (e.BytesRecorded / 2f));
+        OnAudioLevel?.Invoke(rms);
+
+        lock (_bufferLock)
+        {
+            _audioBuffer.AddRange(e.Buffer.AsSpan(0, e.BytesRecorded));
+        }
+    }
+
+    private async Task ProcessLoopAsync(CancellationToken ct)
+    {
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(500, ct).ConfigureAwait(false);
+
+            byte[] chunk;
+            lock (_bufferLock)
+            {
+                if (_audioBuffer.Count < ChunkSizeBytes) continue;
+                chunk = _audioBuffer.ToArray();
+                _audioBuffer.Clear();
+            }
+
+            OnPartialResult?.Invoke("...");
+
+            var text = await SendToGroqAsync(http, chunk, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(text))
+                OnFinalResult?.Invoke(text);
+        }
+
+        // Process remaining audio
+        byte[] remaining;
+        lock (_bufferLock)
+        {
+            remaining = _audioBuffer.ToArray();
+            _audioBuffer.Clear();
+        }
+
+        if (remaining.Length > 3200 && !_disposed)
+        {
+            using var http2 = new HttpClient();
+            http2.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+            try
+            {
+                var text = await SendToGroqAsync(http2, remaining, CancellationToken.None).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(text) && !_disposed)
+                    OnFinalResult?.Invoke(text);
+            }
+            catch { }
+        }
+    }
+
+    private async Task<string> SendToGroqAsync(HttpClient http, byte[] pcm16, CancellationToken ct)
+    {
+        // Convert PCM16 to WAV in memory
+        using var wavStream = new MemoryStream();
+        using (var writer = new BinaryWriter(wavStream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            // WAV header
+            writer.Write("RIFF"u8);
+            writer.Write(36 + pcm16.Length);
+            writer.Write("WAVE"u8);
+            writer.Write("fmt "u8);
+            writer.Write(16); // chunk size
+            writer.Write((short)1); // PCM
+            writer.Write((short)1); // mono
+            writer.Write(16000); // sample rate
+            writer.Write(16000 * 2); // byte rate
+            writer.Write((short)2); // block align
+            writer.Write((short)16); // bits per sample
+            writer.Write("data"u8);
+            writer.Write(pcm16.Length);
+            writer.Write(pcm16);
+        }
+        wavStream.Position = 0;
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new StreamContent(wavStream);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+        content.Add(fileContent, "file", "audio.wav");
+        content.Add(new StringContent(_modelId), "model");
+        content.Add(new StringContent("json"), "response_format");
+        if (_language != "auto")
+            content.Add(new StringContent(_language), "language");
+
+        var response = await http.PostAsync(
+            "https://api.groq.com/openai/v1/audio/transcriptions", content, ct).ConfigureAwait(false);
+        var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.GetProperty("text").GetString() ?? "";
+        }
+        catch { return ""; }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _waveIn.DataAvailable -= OnDataAvailable;
+        _waveIn.StopRecording();
+        _cts?.Cancel();
+        try { _processingTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
+        _waveIn.Dispose();
+        _cts?.Dispose();
+    }
+}
+
 // ── Factory ──────────────────────────────────────────────────────
 
 public static class SpeechRecognizerFactory
 {
-    public static ISpeechRecognizer Create(SttModelInfo model)
+    public static ISpeechRecognizer Create(SttModelInfo model, string? groqApiKey = null)
     {
         if (model.Engine == SttEngine.Vosk)
             return new VoskRecognizer(model.ModelDir);
+
+        if (model.Engine == SttEngine.GroqCloud)
+        {
+            if (string.IsNullOrWhiteSpace(groqApiKey))
+                throw new InvalidOperationException("Groq API key is required");
+            return new GroqWhisperRecognizer(groqApiKey, model.Id, model.WhisperLanguage ?? "auto");
+        }
 
         var binPath = Path.Combine(model.ModelDir, $"{model.Id}.bin");
         return new WhisperRecognizer(binPath, model.WhisperLanguage ?? "auto");

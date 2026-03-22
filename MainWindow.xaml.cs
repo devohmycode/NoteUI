@@ -76,7 +76,7 @@ public sealed partial class MainWindow : Window
         var backdrop = AppSettings.LoadSettings();
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
-        AppSettings.ApplyThemeToWindow(this, theme);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
         if (Content is FrameworkElement rootFe)
         {
             ThemeHelper.Initialize(rootFe);
@@ -507,7 +507,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _voiceNoteWindow = new VoiceNoteWindow(_notes);
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+        _voiceNoteWindow = new VoiceNoteWindow(_notes, _aiManager);
         _voiceNoteWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
         _voiceNoteWindow.Closed += (_, _) => _voiceNoteWindow = null;
         _voiceNoteWindow.Activate();
@@ -525,9 +527,9 @@ public sealed partial class MainWindow : Window
             onThemeSelected: t =>
             {
                 AppSettings.SaveThemeSetting(t);
-                AppSettings.ApplyThemeToWindow(this, t);
+                AppSettings.ApplyThemeToWindow(this, t, _configSource);
                 foreach (var w in _openNoteWindows)
-                    AppSettings.ApplyThemeToWindow(w, t);
+                    w.ApplyTheme(t);
                 _ = _notes.SyncSettingsToFirebase();
             },
             onBackdropSelected: b =>
@@ -589,7 +591,28 @@ public sealed partial class MainWindow : Window
                 _ = _notes.SyncSettingsToFirebase();
             },
             onShowAi: f => ShowAiInSettings(f),
-            onShowPrompts: f => ShowPromptsInSettings(f));
+            onShowPrompts: f => ShowPromptsInSettings(f),
+            currentNoteStyle: AppSettings.LoadNoteStyle(),
+            onNoteStyleSelected: style =>
+            {
+                AppSettings.SaveNoteStyle(style);
+                foreach (var w in _openNoteWindows)
+                    w.ApplyNoteStyle(style);
+                _ = _notes.SyncSettingsToFirebase();
+            },
+            currentFont: AppSettings.LoadFontSetting(),
+            onFontSelected: font =>
+            {
+                AppSettings.SaveFontSetting(font);
+                App.ApplyFontResource(font);
+                var fontFamily = AppSettings.GetFontFamily(font);
+                if (Content is FrameworkElement root)
+                    AppSettings.ApplyFontToTree(root, fontFamily);
+                foreach (var w in _openNoteWindows)
+                    if (w.Content is FrameworkElement noteRoot)
+                        AppSettings.ApplyFontToTree(noteRoot, fontFamily);
+                _ = _notes.SyncSettingsToFirebase();
+            });
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
@@ -597,6 +620,9 @@ public sealed partial class MainWindow : Window
 
     private void ShowVoiceModelsInSettings(Flyout flyout)
     {
+        _aiManager ??= new AiManager();
+        _aiManager.Load();
+
         var settingsDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI");
         var settingsPath = Path.Combine(settingsDir, "voice_settings.json");
@@ -647,7 +673,8 @@ public sealed partial class MainWindow : Window
                     // Re-show main settings
                     Settings_Click(SettingsButton, new RoutedEventArgs());
                 },
-                onRebuild: RebuildModelsPanel);
+                onRebuild: RebuildModelsPanel,
+                aiManager: _aiManager);
         }
 
         RebuildModelsPanel();

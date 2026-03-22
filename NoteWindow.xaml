@@ -133,7 +133,7 @@
                     Padding="10,6" Click="Format_Click"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
-                <FontIcon Glyph="&#xE8D2;" FontSize="12"
+                <FontIcon x:Name="FormatIcon" Glyph="&#xE8D2;" FontSize="12"
                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </Button>
 
@@ -151,7 +151,7 @@
                     Padding="10,6" Click="AiMenu_Click"
                     PointerEntered="AnimatedButton_PointerEntered"
                     PointerExited="AnimatedButton_PointerExited">
-                <FontIcon Glyph="&#xE99A;" FontSize="12"
+                <FontIcon x:Name="AiIcon" Glyph="&#xE99A;" FontSize="12"
                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </Button>
 

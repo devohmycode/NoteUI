@@ -15,6 +15,7 @@ namespace NoteUI;
 public sealed partial class VoiceNoteWindow : Window
 {
     private readonly NotesManager _notesManager;
+    private readonly AiManager _aiManager;
 
     private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
@@ -45,7 +46,7 @@ public sealed partial class VoiceNoteWindow : Window
 
     public event Action? NoteCreated;
 
-    public VoiceNoteWindow(NotesManager notesManager)
+    public VoiceNoteWindow(NotesManager notesManager, AiManager? aiManager = null)
     {
         this.InitializeComponent();
 
@@ -66,9 +67,11 @@ public sealed partial class VoiceNoteWindow : Window
         var backdrop = AppSettings.LoadSettings();
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
-        AppSettings.ApplyThemeToWindow(this, theme);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
 
         _notesManager = notesManager;
+        _aiManager = aiManager ?? new AiManager();
+        _aiManager.Load();
 
         // Try to restore saved model
         var savedId = LoadSavedModelId();
@@ -150,6 +153,14 @@ public sealed partial class VoiceNoteWindow : Window
             .Where(m => m.Languages == langFilter)
             .Select(m => new ModelListItem(m))
             .ToList();
+
+        // Add Groq cloud models if API key is configured
+        if (_aiManager.HasApiKey("groq"))
+        {
+            models.AddRange(SttModels.Available
+                .Where(m => m.Engine == SttEngine.GroqCloud)
+                .Select(m => new ModelListItem(m)));
+        }
 
         FilteredModelList.ItemsSource = models;
 
@@ -260,6 +271,14 @@ public sealed partial class VoiceNoteWindow : Window
         foreach (var model in SttModels.Available.Where(m => m.Languages == "Anglais"))
             panel.Children.Add(CreateModelButton(model, flyout));
 
+        // Groq Cloud models
+        if (_aiManager.HasApiKey("groq"))
+        {
+            panel.Children.Add(CreateSectionHeader(Lang.T("groq_cloud_section")));
+            foreach (var model in SttModels.Available.Where(m => m.Engine == SttEngine.GroqCloud))
+                panel.Children.Add(CreateModelButton(model, flyout));
+        }
+
         flyout.Content = panel;
         flyout.ShowAt(SettingsButton);
     }
@@ -290,8 +309,14 @@ public sealed partial class VoiceNoteWindow : Window
                 : Microsoft.UI.Text.FontWeights.Normal
         });
 
-        var engine = model.Engine == SttEngine.Vosk ? "Vosk" : "Whisper";
-        var status = isCurrent ? "\u25cf Actif" : isDownloaded ? "T\u00e9l\u00e9charg\u00e9" : $"{model.SizeMB} MB";
+        var engine = model.Engine switch
+        {
+            SttEngine.Vosk => "Vosk",
+            SttEngine.GroqCloud => "Groq",
+            _ => "Whisper"
+        };
+        var status = isCurrent ? "\u25cf Actif" : model.Engine == SttEngine.GroqCloud
+            ? "Cloud" : isDownloaded ? "T\u00e9l\u00e9charg\u00e9" : $"{model.SizeMB} MB";
         textPanel.Children.Add(new TextBlock
         {
             Text = $"{engine} \u2014 {status}",
@@ -391,7 +416,9 @@ public sealed partial class VoiceNoteWindow : Window
 
         try
         {
-            _recognizer = SpeechRecognizerFactory.Create(_selectedModel);
+            string? groqKey = _selectedModel.Engine == SttEngine.GroqCloud
+                ? _aiManager.GetApiKey("groq") : null;
+            _recognizer = SpeechRecognizerFactory.Create(_selectedModel, groqKey);
         }
         catch (Exception ex)
         {
@@ -565,7 +592,12 @@ public class ModelListItem
     public string Name => Model.Name;
     public long SizeMB => Model.SizeMB;
     public string Languages => Model.Languages;
-    public string EngineName => Model.Engine == SttEngine.Vosk ? "Vosk" : "Whisper";
+    public string EngineName => Model.Engine switch
+    {
+        SttEngine.Vosk => "Vosk",
+        SttEngine.GroqCloud => "Groq Cloud",
+        _ => "Whisper"
+    };
     public Visibility IsDownloaded => Model.IsDownloaded ? Visibility.Visible : Visibility.Collapsed;
 
     public ModelListItem(SttModelInfo model) => Model = model;

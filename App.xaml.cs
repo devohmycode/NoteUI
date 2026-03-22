@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 
 namespace NoteUI;
 
@@ -14,8 +15,15 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Lang.SetLanguage(AppSettings.LoadLanguage());
+        ApplyFontResource(AppSettings.LoadFontSetting());
         ReminderService.Initialize();
         _window = new MainWindow();
         _window.Activate();
+    }
+
+    public static void ApplyFontResource(string font)
+    {
+        var fontFamily = AppSettings.GetFontFamily(font);
+        Application.Current.Resources["ContentControlThemeFontFamily"] = fontFamily;
     }
 }
