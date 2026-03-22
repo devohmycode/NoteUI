@@ -40,10 +40,10 @@ public sealed partial class AcrylicSettingsWindow : Window
             AppWindow.SetIcon(iconPath);
 
         var theme = AppSettings.LoadThemeSetting();
-        AppSettings.ApplyThemeToWindow(this, theme);
 
         // Apply acrylic to this window too (live preview)
         AppSettings.ApplyToWindow(this, settings, ref _acrylicController, ref _configSource);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
 
         LoadSettings(settings);
         ApplyAcrylicLocalization();

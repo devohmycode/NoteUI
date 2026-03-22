@@ -81,7 +81,7 @@ public sealed partial class NotepadWindow : Window
         var backdrop = AppSettings.LoadSettings();
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
-        AppSettings.ApplyThemeToWindow(this, theme);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
 
         _notesManager = notesManager;
         ApplyNotepadLocalization();

@@ -40,6 +40,9 @@ public sealed partial class NoteWindow : Window
     private const int AutoResizeMax = 800;
     private const int NoteWindowWidth = 400;
 
+    // Note style
+    private string _noteStyle = "titlebar";
+
     // Voice dictation
     private ISpeechRecognizer? _voiceRecognizer;
     private bool _isVoiceRecording;
@@ -82,9 +85,9 @@ public sealed partial class NoteWindow : Window
         var backdrop = AppSettings.LoadSettings();
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
-        AppSettings.ApplyThemeToWindow(this, theme);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
 
-        // Position next to parent window with slight vertical offset
+        // Position next to parent window and slight vertical offset
         if (parentPosition != null)
         {
             var rng = new Random();
@@ -110,6 +113,7 @@ public sealed partial class NoteWindow : Window
         _notesManager = notesManager;
         _note = note;
 
+        _noteStyle = AppSettings.LoadNoteStyle();
         ApplyNoteColor(note.Color);
         TitleText.Text = note.Title;
         UpdateMenuIcon();
@@ -156,6 +160,11 @@ public sealed partial class NoteWindow : Window
     public void ApplyBackdrop(BackdropSettings settings)
     {
         AppSettings.ApplyToWindow(this, settings, ref _acrylicController, ref _configSource);
+    }
+
+    public void ApplyTheme(string theme)
+    {
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
     }
 
     public void SetCompactState(bool compact, bool animate = true)
@@ -292,24 +301,48 @@ public sealed partial class NoteWindow : Window
 
     private void ApplyNoteColor(string colorName)
     {
-        if (NoteColors.IsNone(colorName))
+        var isNone = NoteColors.IsNone(colorName);
+        var isFull = _noteStyle == "full" && !isNone;
+        var transparent = new SolidColorBrush(new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 });
+
+        if (isNone)
         {
-            TitleBarGrid.Background = new SolidColorBrush(new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 });
-            ColorIndicator.Fill = new SolidColorBrush(new Windows.UI.Color { A = 0, R = 0, G = 0, B = 0 });
+            TitleBarGrid.Background = transparent;
+            RootGrid.Background = transparent;
+            StatusBar.Background = transparent;
+            StatusBar.BorderThickness = new Thickness(0, 1, 0, 0);
+            StatusBar.BorderBrush = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"];
+            ColorIndicator.Fill = transparent;
             ColorIndicator.Stroke = new SolidColorBrush(new Windows.UI.Color { A = 80, R = 128, G = 128, B = 128 });
             ColorIndicator.StrokeThickness = 1.5;
+        }
+        else if (isFull)
+        {
+            var color = NoteColors.Get(colorName);
+            var colorBrush = new SolidColorBrush(color);
+            TitleBarGrid.Background = colorBrush;
+            RootGrid.Background = colorBrush;
+            StatusBar.Background = colorBrush;
+            StatusBar.BorderThickness = new Thickness(0);
+            ColorIndicator.Fill = new SolidColorBrush(NoteColors.GetDarker(colorName, 0.85));
+            ColorIndicator.Stroke = null;
+            ColorIndicator.StrokeThickness = 0;
         }
         else
         {
             var darker = NoteColors.GetDarker(colorName, 0.93);
             TitleBarGrid.Background = new SolidColorBrush(darker);
+            RootGrid.Background = transparent;
+            StatusBar.Background = transparent;
+            StatusBar.BorderThickness = new Thickness(0, 1, 0, 0);
+            StatusBar.BorderBrush = (Brush)Application.Current.Resources["DividerStrokeColorDefaultBrush"];
             ColorIndicator.Fill = new SolidColorBrush(NoteColors.Get(colorName));
             ColorIndicator.Stroke = null;
             ColorIndicator.StrokeThickness = 0;
         }
 
-        // Title bar foreground: use theme color when no note color, black otherwise (pastel backgrounds)
-        var titleForeground = NoteColors.IsNone(colorName)
+        // Foreground: black on colored backgrounds, theme default otherwise
+        var titleForeground = isNone
             ? (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
             : new SolidColorBrush(Microsoft.UI.Colors.Black);
         MenuIcon.Foreground = titleForeground;
@@ -318,8 +351,47 @@ public sealed partial class NoteWindow : Window
         PinIcon.Foreground = titleForeground;
         CloseIcon.Foreground = titleForeground;
 
+        // Status bar icons: black in full mode with color, theme default otherwise
+        var statusForeground = isFull
+            ? new SolidColorBrush(Microsoft.UI.Colors.Black)
+            : (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+        FormatIcon.Foreground = statusForeground;
+        VoiceIcon.Foreground = statusForeground;
+        AiIcon.Foreground = statusForeground;
+
+        // Editor text color: force black in full mode (pastel backgrounds)
+        if (isFull)
+        {
+            NoteEditor.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            TaskNoteEditor.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            SetEditorTextColor(NoteEditor, Microsoft.UI.Colors.Black);
+            SetEditorTextColor(TaskNoteEditor, Microsoft.UI.Colors.Black);
+        }
+        else
+        {
+            NoteEditor.ClearValue(RichEditBox.ForegroundProperty);
+            TaskNoteEditor.ClearValue(RichEditBox.ForegroundProperty);
+        }
+
         // Subtle fade on color change
         AnimationHelper.FadeIn(TitleBarGrid, 200);
+    }
+
+    public void ApplyNoteStyle(string style)
+    {
+        _noteStyle = style;
+        ApplyNoteColor(_note.Color);
+    }
+
+    private static void SetEditorTextColor(RichEditBox editor, Windows.UI.Color color)
+    {
+        editor.Document.GetText(TextGetOptions.None, out var text);
+        if (string.IsNullOrEmpty(text.TrimEnd('\r', '\n')))
+            return;
+        var range = editor.Document.GetRange(0, int.MaxValue);
+        var fmt = range.CharacterFormat;
+        fmt.ForegroundColor = color;
+        range.CharacterFormat = fmt;
     }
 
     private void UpdateMenuIcon()

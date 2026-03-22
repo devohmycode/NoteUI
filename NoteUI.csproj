@@ -22,6 +22,9 @@
     <Content Include="firebase.public.json" Condition="Exists('firebase.public.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\Fonts\*.otf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <Target Name="CopyPriToPublish" AfterTargets="Publish">

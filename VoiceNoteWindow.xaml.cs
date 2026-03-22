@@ -67,7 +67,7 @@ public sealed partial class VoiceNoteWindow : Window
         var backdrop = AppSettings.LoadSettings();
         var theme = AppSettings.LoadThemeSetting();
         AppSettings.ApplyToWindow(this, backdrop, ref _acrylicController, ref _configSource);
-        AppSettings.ApplyThemeToWindow(this, theme);
+        AppSettings.ApplyThemeToWindow(this, theme, _configSource);
 
         _notesManager = notesManager;
         _aiManager = aiManager ?? new AiManager();

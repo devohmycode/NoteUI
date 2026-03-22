@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using WinRT;
 
@@ -53,6 +54,82 @@ public static class AppSettings
     public static void SaveLanguage(string lang)
     {
         MergeAndSaveSettings(new Dictionary<string, object> { ["language"] = lang });
+    }
+
+    // ── Font ─────────────────────────────────────────────────
+
+    public static string LoadFontSetting()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("font", out var prop))
+                    return prop.GetString() ?? "geist";
+            }
+        }
+        catch { }
+        return "geist";
+    }
+
+    public static void SaveFontSetting(string font)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["font"] = font });
+    }
+
+    public static FontFamily GetFontFamily(string font)
+    {
+        return font switch
+        {
+            "segoe" => new FontFamily("Segoe UI"),
+            "inter" => new FontFamily("Assets/Fonts/Inter-Regular.ttf#Inter"),
+            "jetbrains" => new FontFamily("Assets/Fonts/JetBrainsMono-Regular.ttf#JetBrains Mono"),
+            _ => new FontFamily("Assets/Fonts/Geist-Regular.otf#Geist"),
+        };
+    }
+
+    public static void ApplyFontToTree(FrameworkElement root, FontFamily fontFamily)
+    {
+        if (root is Control c)
+            c.FontFamily = fontFamily;
+        else if (root is TextBlock tb)
+            tb.FontFamily = fontFamily;
+
+        if (root is Panel panel)
+        {
+            foreach (var child in panel.Children)
+                if (child is FrameworkElement fe)
+                    ApplyFontToTree(fe, fontFamily);
+        }
+        else if (root is ContentControl cc && cc.Content is FrameworkElement content)
+        {
+            ApplyFontToTree(content, fontFamily);
+        }
+    }
+
+    // ── Note style ────────────────────────────────────────────
+
+    public static string LoadNoteStyle()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("noteStyle", out var prop))
+                    return prop.GetString() ?? "titlebar";
+            }
+        }
+        catch { }
+        return "titlebar";
+    }
+
+    public static void SaveNoteStyle(string style)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["noteStyle"] = style });
     }
 
     // ── Slash commands ──────────────────────────────────────────
@@ -240,7 +317,8 @@ public static class AppSettings
         }
     }
 
-    public static void ApplyThemeToWindow(Window window, string theme)
+    public static void ApplyThemeToWindow(Window window, string theme,
+        SystemBackdropConfiguration? configSource = null)
     {
         if (window.Content is FrameworkElement fe)
         {
@@ -250,6 +328,9 @@ public static class AppSettings
                 "dark" => ElementTheme.Dark,
                 _ => ElementTheme.Default
             };
+
+            if (configSource != null)
+                configSource.Theme = (SystemBackdropTheme)fe.ActualTheme;
         }
     }
 
