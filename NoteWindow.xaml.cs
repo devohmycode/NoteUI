@@ -365,15 +365,29 @@ public sealed partial class NoteWindow : Window
         // Editor text color: force black in full mode (pastel backgrounds)
         if (isFull)
         {
-            NoteEditor.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black);
-            TaskNoteEditor.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            var blackBrush = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            NoteEditor.Foreground = blackBrush;
+            TaskNoteEditor.Foreground = blackBrush;
             SetEditorTextColor(NoteEditor, Microsoft.UI.Colors.Black);
             SetEditorTextColor(TaskNoteEditor, Microsoft.UI.Colors.Black);
+            // Override visual-state foreground so hover/focus don't revert to white
+            NoteEditor.Resources["TextControlForeground"] = blackBrush;
+            NoteEditor.Resources["TextControlForegroundPointerOver"] = blackBrush;
+            NoteEditor.Resources["TextControlForegroundFocused"] = blackBrush;
+            TaskNoteEditor.Resources["TextControlForeground"] = blackBrush;
+            TaskNoteEditor.Resources["TextControlForegroundPointerOver"] = blackBrush;
+            TaskNoteEditor.Resources["TextControlForegroundFocused"] = blackBrush;
         }
         else
         {
             NoteEditor.ClearValue(RichEditBox.ForegroundProperty);
             TaskNoteEditor.ClearValue(RichEditBox.ForegroundProperty);
+            NoteEditor.Resources.Remove("TextControlForeground");
+            NoteEditor.Resources.Remove("TextControlForegroundPointerOver");
+            NoteEditor.Resources.Remove("TextControlForegroundFocused");
+            TaskNoteEditor.Resources.Remove("TextControlForeground");
+            TaskNoteEditor.Resources.Remove("TextControlForegroundPointerOver");
+            TaskNoteEditor.Resources.Remove("TextControlForegroundFocused");
         }
 
         // Subtle fade on color change

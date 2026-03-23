@@ -125,20 +125,18 @@ public class NotesManager
         IsSyncing = true;
         try
         {
-            var remote = await Firebase.PullNotesAsync();
-            if (remote == null) return false;
+            var remoteDict = await Firebase.PullNotesDictionaryAsync();
+            if (remoteDict == null) return false;
 
-            var merged = new Dictionary<string, NoteEntry>();
-            foreach (var n in _notes)
-                merged[n.Id] = n;
-            foreach (var n in remote)
-            {
-                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
-                    merged[n.Id] = n;
-            }
+            var remote = remoteDict.Values.ToList();
+            var deletionDict = await Firebase.PullNoteDeletionsAsync() ?? [];
+            var tombstones = new HashSet<string>(deletionDict.Keys, StringComparer.Ordinal);
+            var everSeen = AppSettings.LoadFirebaseEverSeenNoteIds(Firebase.LocalUserId ?? "");
+            var merged = FirebaseSync.MergePullWithLocal(_notes, remote, everSeen, tombstones);
+            AppSettings.SaveFirebaseEverSeenNoteIds(Firebase.LocalUserId ?? "", everSeen);
 
             _notes.Clear();
-            _notes.AddRange(merged.Values);
+            _notes.AddRange(merged);
             Save();
             return true;
         }
@@ -265,7 +263,8 @@ public class NotesManager
                 merged[n.Id] = n;
             foreach (var n in remote)
             {
-                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
+                // Prefer remote when newer or same instant (avoids losing pin-only web updates if clocks align to the same tick).
+                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt >= local.UpdatedAt)
                     merged[n.Id] = n;
             }
 
@@ -395,6 +394,7 @@ public class NotesManager
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note == null) return;
         note.IsPinned = !note.IsPinned;
+        note.UpdatedAt = DateTime.Now;
         Save();
     }
 

@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
     private const int FullHeight = 650;
     private const int CompactHeight = 120;
     private Microsoft.UI.Xaml.DispatcherTimer? _animTimer;
+    private Microsoft.UI.Xaml.DispatcherTimer? _firebasePeriodicTimer;
     private int _targetHeight;
     private int _currentAnimHeight;
 
@@ -109,6 +110,7 @@ public sealed partial class MainWindow : Window
         this.Closed += (_, _) =>
         {
             SaveMainWindowPosition();
+            StopFirebasePeriodicPull();
             _textExpansion?.Stop();
             _reminderService?.Dispose();
             ReminderService.Shutdown();
@@ -140,6 +142,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(CompactButton, Lang.T("tip_compact"));
         ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
         ToolTipService.SetToolTip(SettingsButton, Lang.T("tip_settings"));
+        ToolTipService.SetToolTip(SyncButton, Lang.T("tip_sync"));
         ToolTipService.SetToolTip(CloseButton, Lang.T("tip_close"));
         ToolTipService.SetToolTip(QuickAccessButton, Lang.T("tip_quick_access"));
         SearchBox.PlaceholderText = Lang.T("search");
@@ -150,7 +153,64 @@ public sealed partial class MainWindow : Window
     {
         await _notes.InitFirebaseFromSettings();
         await _notes.InitWebDavFromSettings();
+        UpdateSyncButtonVisibility();
         RefreshCurrentView();
+        StartFirebasePeriodicPull();
+    }
+
+    /// <summary>Background pull from RTDB (same idea as web <c>onValue</c>), so web deletes propagate without pressing Sync.</summary>
+    private void StartFirebasePeriodicPull()
+    {
+        StopFirebasePeriodicPull();
+        if (_notes.Firebase is not { IsConnected: true }) return;
+        _firebasePeriodicTimer = new Microsoft.UI.Xaml.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(45),
+        };
+        _firebasePeriodicTimer.Tick += (_, _) =>
+        {
+            DispatcherQueue.TryEnqueue(() => _ = PullFirebaseInBackgroundAsync());
+        };
+        _firebasePeriodicTimer.Start();
+    }
+
+    private void StopFirebasePeriodicPull()
+    {
+        if (_firebasePeriodicTimer != null)
+        {
+            _firebasePeriodicTimer.Stop();
+            _firebasePeriodicTimer = null;
+        }
+    }
+
+    private async Task PullFirebaseInBackgroundAsync()
+    {
+        if (_notes.IsSyncing) return;
+        if (_notes.Firebase is not { IsConnected: true }) return;
+        await _notes.SyncFromFirebase();
+        RefreshCurrentView();
+    }
+
+    private void UpdateSyncButtonVisibility()
+    {
+        SyncButton.Visibility = _notes.Firebase is { IsConnected: true }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncButton.IsEnabled = false;
+        try
+        {
+            await _notes.SyncSettingsFromFirebase();
+            await _notes.SyncFromFirebase();
+            RefreshCurrentView();
+        }
+        finally
+        {
+            SyncButton.IsEnabled = true;
+        }
     }
 
     private void ExitApplication()
@@ -250,10 +310,13 @@ public sealed partial class MainWindow : Window
     {
         var color = NoteColors.Get(note.Color);
         var hasColor = !NoteColors.IsNone(note.Color);
+        var isFull = hasColor && AppSettings.LoadNoteStyle() == "full";
 
-        var cardColor = hasColor
-            ? ThemeHelper.CardBackgroundWithColor(color)
-            : ThemeHelper.CardBackground;
+        var cardColor = isFull
+            ? color
+            : hasColor
+                ? ThemeHelper.CardBackgroundWithColor(color)
+                : ThemeHelper.CardBackground;
         var cardBg = new SolidColorBrush(cardColor);
 
         var outer = new Button
@@ -266,10 +329,24 @@ public sealed partial class MainWindow : Window
             Padding = new Thickness(0),
         };
 
+        if (isFull)
+        {
+            var blackBrush = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            var hoverBg = new SolidColorBrush(NoteColors.GetDarker(note.Color, 0.93));
+            var pressedBg = new SolidColorBrush(NoteColors.GetDarker(note.Color, 0.88));
+            outer.Foreground = blackBrush;
+            outer.Resources["ButtonForeground"] = blackBrush;
+            outer.Resources["ButtonForegroundPointerOver"] = blackBrush;
+            outer.Resources["ButtonForegroundPressed"] = blackBrush;
+            outer.Resources["ButtonBackground"] = cardBg;
+            outer.Resources["ButtonBackgroundPointerOver"] = hoverBg;
+            outer.Resources["ButtonBackgroundPressed"] = pressedBg;
+        }
+
         var stack = new StackPanel();
 
-        // Thin color bar at top
-        if (hasColor)
+        // Thin color bar at top (skip in full color mode — entire card is colored)
+        if (hasColor && !isFull)
         {
             stack.Children.Add(new Border
             {
@@ -648,7 +725,9 @@ public sealed partial class MainWindow : Window
             onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
             onDisconnectFirebase: () =>
             {
+                StopFirebasePeriodicPull();
                 _notes.DisconnectFirebase();
+                UpdateSyncButtonVisibility();
             },
             onSyncFirebase: async () =>
             {
@@ -690,6 +769,7 @@ public sealed partial class MainWindow : Window
                 AppSettings.SaveNoteStyle(style);
                 foreach (var w in _openNoteWindows)
                     w.ApplyNoteStyle(style);
+                RefreshCurrentView();
                 _ = _notes.SyncSettingsToFirebase();
             },
             currentFont: AppSettings.LoadFontSetting(),
@@ -718,7 +798,7 @@ public sealed partial class MainWindow : Window
                 RefreshCurrentView();
             });
 
-        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
     }
 
@@ -1086,7 +1166,9 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                UpdateSyncButtonVisibility();
                 RefreshCurrentView();
+                StartFirebasePeriodicPull();
                 googleSignInDone = true;
             }
             else
@@ -1120,7 +1202,9 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                UpdateSyncButtonVisibility();
                 RefreshCurrentView();
+                StartFirebasePeriodicPull();
                 break;
             }
 
@@ -1273,7 +1357,7 @@ public sealed partial class MainWindow : Window
         };
 
         var flyout = ActionPanel.Create(Lang.T("quick_access"), actions);
-        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft;
         flyout.ShowAt(QuickAccessButton);
     }
 

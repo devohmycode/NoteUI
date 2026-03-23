@@ -257,6 +257,49 @@ public static class AppSettings
         });
     }
 
+    /// <summary>Note ids ever present under RTDB <c>users/{uid}/notes</c> (aligns with web localStorage key semantics).</summary>
+    public static HashSet<string> LoadFirebaseEverSeenNoteIds(string userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+            return new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var path = FirebaseEverSeenNoteIdsPath(userId);
+            if (!File.Exists(path))
+                return new HashSet<string>(StringComparer.Ordinal);
+            var list = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(path));
+            return list is { Count: > 0 }
+                ? new HashSet<string>(list, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+        }
+        catch
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    public static void SaveFirebaseEverSeenNoteIds(string userId, IEnumerable<string> ids)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            var dir = Path.Combine(SettingsDir, "firebase-ever-seen");
+            Directory.CreateDirectory(dir);
+            var path = FirebaseEverSeenNoteIdsPath(userId);
+            var arr = ids.Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+            File.WriteAllText(path, JsonSerializer.Serialize(arr));
+        }
+        catch { }
+    }
+
+    private static string FirebaseEverSeenNoteIdsPath(string userId)
+    {
+        var safe = string.Concat(userId.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+        if (string.IsNullOrEmpty(safe)) safe = "unknown";
+        return Path.Combine(SettingsDir, "firebase-ever-seen", $"{safe}.json");
+    }
+
     // ── WebDAV ─────────────────────────────────────────────────
 
     public static (string Url, string Username, string Password) LoadWebDavSettings()
