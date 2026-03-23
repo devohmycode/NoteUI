@@ -101,7 +101,7 @@
         </ScrollViewer>
 
         <!-- Row 4: Status bar -->
-        <Grid Grid.Row="4" Padding="8,2,8,6">
+        <Grid x:Name="StatusBar" Grid.Row="4" Padding="8,2,8,6">
             <Button x:Name="QuickAccessButton"
                     HorizontalAlignment="Left" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"

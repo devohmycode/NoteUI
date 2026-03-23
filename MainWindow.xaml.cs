@@ -40,7 +40,7 @@ public sealed partial class MainWindow : Window
     private bool _isPinned;
     private bool _isCompact;
     private const int FullHeight = 650;
-    private const int CompactHeight = 120;
+    private const int CompactHeight = 40;
     private Microsoft.UI.Xaml.DispatcherTimer? _animTimer;
     private Microsoft.UI.Xaml.DispatcherTimer? _firebasePeriodicTimer;
     private int _targetHeight;
@@ -1275,28 +1275,34 @@ public sealed partial class MainWindow : Window
         {
             if (animate)
             {
-                AnimationHelper.FadeOut(TitleLabel, 100);
+                AnimationHelper.FadeOut(TitlePanel, 100);
+                AnimationHelper.FadeOut(SearchGrid, 100);
                 AnimationHelper.FadeOut(NotesScroll, 120);
+                AnimationHelper.FadeOut(StatusBar, 100);
             }
             else
             {
-                TitleLabel.Opacity = 0;
+                TitlePanel.Opacity = 0;
+                SearchGrid.Opacity = 0;
                 NotesScroll.Opacity = 0;
+                StatusBar.Opacity = 0;
             }
         }
         else
         {
             if (animate)
             {
-                AnimationHelper.FadeIn(TitleLabel, 200, 80);
+                AnimationHelper.FadeIn(TitlePanel, 200, 80);
                 AnimationHelper.FadeIn(SearchGrid, 200, 120);
                 AnimationHelper.FadeIn(NotesScroll, 250, 160);
+                AnimationHelper.FadeIn(StatusBar, 200, 160);
             }
             else
             {
-                TitleLabel.Opacity = 1;
+                TitlePanel.Opacity = 1;
                 SearchGrid.Opacity = 1;
                 NotesScroll.Opacity = 1;
+                StatusBar.Opacity = 1;
             }
         }
 
