@@ -1782,7 +1782,7 @@ public sealed partial class NoteWindow : Window
             }),
             new("\uE723",
                 !string.IsNullOrEmpty(_note.AttachMode)
-                    ? $"{Lang.T("attached_to")} {(_note.AttachMode == "process" ? _note.AttachTarget : System.IO.Path.GetFileName(_note.AttachTarget))}"
+                    ? $"{Lang.T("attached_to")} {GetAttachTargetLabel()}"
                     : Lang.T("attach_to_window"), [], () => ShowAttachMenu()),
             new("\uE7B8", _note.IsArchived ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
             {
@@ -1810,6 +1810,7 @@ public sealed partial class NoteWindow : Window
         var actions = new List<ActionPanel.ActionItem>
         {
             new("\uE737", Lang.T("attach_to_program"), [], () => ShowRunningProgramsList()),
+            new("\uE774", Lang.T("attach_to_website"), [], () => ShowWebTabsList()),
             new("\uE8B7", Lang.T("attach_to_folder"), [], async () => await PickAttachFolder()),
         };
 
@@ -1861,6 +1862,35 @@ public sealed partial class NoteWindow : Window
         flyout.ShowAt(MenuButton);
     }
 
+    private void ShowWebTabsList()
+    {
+        var tabs = WindowAttachmentHelper.GetVisibleWebTabs();
+        if (tabs.Count == 0)
+        {
+            var empty = ActionPanel.Create(Lang.T("select_website"),
+                [new(null, Lang.T("no_web_tabs_found"), [], () => { })]);
+            empty.ShowAt(MenuButton);
+            return;
+        }
+
+        var actions = tabs.Select(tab =>
+            new ActionPanel.ActionItem(null, $"{tab.ProcessName}  —  {tab.Title}", [], () =>
+            {
+                _note.AttachTarget = tab.Title;
+                _note.AttachMode = "title";
+                _note.AttachOffsetX = 0;
+                _note.AttachOffsetY = 0;
+                _notesManager.Save();
+                UpdateAttachIcon();
+                NoteChanged?.Invoke();
+                AttachmentChanged?.Invoke();
+            })
+        ).ToList();
+
+        var flyout = ActionPanel.Create(Lang.T("select_website"), actions);
+        flyout.ShowAt(MenuButton);
+    }
+
     private async Task PickAttachFolder()
     {
         var picker = new Windows.Storage.Pickers.FolderPicker();
@@ -1900,12 +1930,23 @@ public sealed partial class NoteWindow : Window
 
             if (!string.IsNullOrEmpty(_note.AttachMode))
             {
-                var target = _note.AttachMode == "process"
-                    ? _note.AttachTarget
-                    : System.IO.Path.GetFileName(_note.AttachTarget);
-                ToolTipService.SetToolTip(AttachIcon, $"{Lang.T("attached_to")} {target}");
+                ToolTipService.SetToolTip(AttachIcon, $"{Lang.T("attached_to")} {GetAttachTargetLabel()}");
             }
         }
+    }
+
+    private string GetAttachTargetLabel()
+    {
+        if (string.IsNullOrWhiteSpace(_note.AttachTarget))
+            return "";
+
+        return _note.AttachMode switch
+        {
+            "process" => _note.AttachTarget!,
+            "folder" => System.IO.Path.GetFileName(_note.AttachTarget!),
+            "title" => _note.AttachTarget!,
+            _ => _note.AttachTarget!
+        };
     }
 
     private void ShowTaskReminderDialog(TaskItem task, FontIcon bellIcon, Button reminderBtn)

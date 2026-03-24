@@ -456,7 +456,7 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             };
             ToolTipService.SetToolTip(attachIcon,
-                $"{Lang.T("attached_to")} {(note.AttachMode == "process" ? note.AttachTarget : Path.GetFileName(note.AttachTarget))}");
+                $"{Lang.T("attached_to")} {GetAttachTargetLabel(note)}");
             metaPanel.Children.Add(attachIcon);
         }
         if (!string.IsNullOrEmpty(note.TaskProgress))
@@ -552,6 +552,20 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    private static string GetAttachTargetLabel(NoteEntry note)
+    {
+        if (string.IsNullOrWhiteSpace(note.AttachTarget))
+            return "";
+
+        return note.AttachMode switch
+        {
+            "process" => note.AttachTarget!,
+            "folder" => Path.GetFileName(note.AttachTarget!),
+            "title" => note.AttachTarget!,
+            _ => note.AttachTarget!
+        };
+    }
+
     private void ShowNoteContextMenu(string noteId, FrameworkElement target)
     {
         var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
@@ -585,8 +599,8 @@ public sealed partial class MainWindow : Window
                 HandleLockToggle(noteId, target);
             }),
             new("\uE723",
-                !string.IsNullOrEmpty(note?.AttachMode)
-                    ? $"{Lang.T("attached_to")} {(note.AttachMode == "process" ? note.AttachTarget : Path.GetFileName(note.AttachTarget))}"
+                note != null && !string.IsNullOrEmpty(note.AttachMode)
+                    ? $"{Lang.T("attached_to")} {GetAttachTargetLabel(note)}"
                     : Lang.T("attach_to_window"), [], () =>
             {
                 if (note != null)
@@ -634,6 +648,10 @@ public sealed partial class MainWindow : Window
             new("\uE737", Lang.T("attach_to_program"), [], () =>
             {
                 ShowRunningProgramsPicker(note, target);
+            }),
+            new("\uE774", Lang.T("attach_to_website"), [], () =>
+            {
+                ShowWebTabsPicker(note, target);
             }),
             new("\uE8B7", Lang.T("attach_to_folder"), [], async () =>
             {
@@ -684,6 +702,34 @@ public sealed partial class MainWindow : Window
         ).ToList();
 
         var flyout = ActionPanel.Create(Lang.T("select_program"), actions);
+        flyout.ShowAt(target);
+    }
+
+    private void ShowWebTabsPicker(NoteEntry note, FrameworkElement target)
+    {
+        var tabs = WindowAttachmentHelper.GetVisibleWebTabs();
+        if (tabs.Count == 0)
+        {
+            var empty = ActionPanel.Create(Lang.T("select_website"),
+                [new(null, Lang.T("no_web_tabs_found"), [], () => { })]);
+            empty.ShowAt(target);
+            return;
+        }
+
+        var actions = tabs.Select(tab =>
+            new ActionPanel.ActionItem(null, $"{tab.ProcessName}  —  {tab.Title}", [], () =>
+            {
+                note.AttachTarget = tab.Title;
+                note.AttachMode = "title";
+                note.AttachOffsetX = 0;
+                note.AttachOffsetY = 0;
+                _notes.Save();
+                _attachmentService?.Refresh();
+                RefreshCurrentView();
+            })
+        ).ToList();
+
+        var flyout = ActionPanel.Create(Lang.T("select_website"), actions);
         flyout.ShowAt(target);
     }
 
@@ -881,6 +927,12 @@ public sealed partial class MainWindow : Window
         else if (note.AttachMode == "process")
         {
             // Check if the process is currently foreground
+            window.SetPinnedOnTop(true);
+            _attachmentService?.Refresh();
+        }
+        else if (note.AttachMode == "title")
+        {
+            // Check if the foreground window title matches
             window.SetPinnedOnTop(true);
             _attachmentService?.Refresh();
         }

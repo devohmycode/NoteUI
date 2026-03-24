@@ -326,11 +326,14 @@ public static class Lang
             // ── Attachment ──────────────────────────────────────────
             ["attach_to_window"] = "Attach to window",
             ["attach_to_program"] = "Attach to program",
+            ["attach_to_website"] = "Attach to website tab",
             ["attach_to_folder"] = "Attach to folder",
             ["attached_to"] = "Attached to",
             ["detach"] = "Detach",
             ["select_program"] = "Select a program",
             ["no_windows_found"] = "No windows found",
+            ["select_website"] = "Select a website tab",
+            ["no_web_tabs_found"] = "No web tabs found",
         },
 
         ["fr"] = new()
@@ -651,13 +654,16 @@ public static class Lang
             ["ai_prompt_edit"] = "Modifier",
 
             // ── Attachment ──────────────────────────────────────────
-            ["attach_to_window"] = "Attacher à une fenêtre",
+            ["attach_to_window"] = "Attacher",
             ["attach_to_program"] = "Attacher à un programme",
+            ["attach_to_website"] = "Attacher à un onglet web",
             ["attach_to_folder"] = "Attacher à un dossier",
             ["attached_to"] = "Attaché à",
             ["detach"] = "Détacher",
             ["select_program"] = "Sélectionner un programme",
             ["no_windows_found"] = "Aucune fenêtre trouvée",
+            ["select_website"] = "Sélectionner un onglet web",
+            ["no_web_tabs_found"] = "Aucun onglet web trouvé",
         }
     };
 

@@ -10,6 +10,20 @@ namespace NoteUI;
 public static class WindowAttachmentHelper
 {
     public record WindowInfo(string ProcessName, string Title);
+    public record WebTabInfo(string ProcessName, string Title);
+
+    private static readonly HashSet<string> BrowserProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "chrome",
+        "msedge",
+        "firefox",
+        "brave",
+        "opera",
+        "arc",
+        "vivaldi",
+        "chromium",
+        "iexplore",
+    };
 
     public static List<WindowInfo> GetVisibleWindows()
     {
@@ -49,6 +63,74 @@ public static class WindowAttachmentHelper
         }, IntPtr.Zero);
 
         return results.OrderBy(w => w.ProcessName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public static List<WebTabInfo> GetVisibleWebTabs()
+    {
+        var results = new List<WebTabInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentPid = Environment.ProcessId;
+
+        EnumWindows((hwnd, _) =>
+        {
+            if (!IsWindowVisible(hwnd)) return true;
+
+            var sb = new StringBuilder(512);
+            GetWindowText(hwnd, sb, sb.Capacity);
+            var title = NormalizeBrowserTitle(sb.ToString());
+            if (string.IsNullOrWhiteSpace(title)) return true;
+
+            GetWindowThreadProcessId(hwnd, out var pid);
+            if (pid == 0 || pid == currentPid) return true;
+
+            try
+            {
+                var proc = Process.GetProcessById((int)pid);
+                var name = proc.ProcessName;
+                if (!BrowserProcesses.Contains(name))
+                    return true;
+
+                var dedupKey = $"{name}|{title}";
+                if (seen.Add(dedupKey))
+                    results.Add(new WebTabInfo(name, title));
+            }
+            catch { }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return results
+            .OrderBy(w => w.ProcessName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(w => w.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string NormalizeBrowserTitle(string title)
+    {
+        var normalized = title.Trim();
+        if (normalized.Length == 0)
+            return normalized;
+
+        string[] suffixes =
+        [
+            " - Google Chrome",
+            " - Microsoft Edge",
+            " - Mozilla Firefox",
+            " - Brave",
+            " - Opera",
+            " - Arc",
+            " - Vivaldi",
+            " - Chromium",
+            " - Internet Explorer"
+        ];
+
+        foreach (var suffix in suffixes)
+        {
+            if (normalized.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                return normalized[..^suffix.Length].Trim();
+        }
+
+        return normalized;
     }
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);

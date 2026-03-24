@@ -494,8 +494,8 @@ public class NoteEntry
     public bool IsCompact { get; set; }
 
     // Attachment: attach note to a running process or an Explorer folder
-    public string? AttachTarget { get; set; }    // process name (e.g. "notepad") or folder path
-    public string? AttachMode { get; set; }      // "process" | "folder" | null
+    public string? AttachTarget { get; set; }    // process name, window title fragment, or folder path
+    public string? AttachMode { get; set; }      // "process" | "title" | "folder" | null
     public int AttachOffsetX { get; set; }       // relative X offset to target window
     public int AttachOffsetY { get; set; }       // relative Y offset to target window
 

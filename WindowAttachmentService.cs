@@ -6,7 +6,7 @@ namespace NoteUI;
 
 /// <summary>
 /// Monitors foreground windows and open Explorer folders to auto-show/hide
-/// notes that are attached to a specific process or folder path.
+/// notes that are attached to a specific process, window title, or folder path.
 /// </summary>
 public sealed class WindowAttachmentService : IDisposable
 {
@@ -15,11 +15,12 @@ public sealed class WindowAttachmentService : IDisposable
     private readonly DispatcherTimer _foregroundTimer;
     private readonly DispatcherTimer _explorerTimer;
     private readonly HashSet<string> _visibleNoteIds = [];
+    private readonly Dictionary<string, int> _attachmentMissCounts = [];
 
     private IntPtr _foregroundHook;
     private WinEventDelegate? _foregroundDelegate; // prevent GC collection
 
-    // Current foreground process info (updated on each EVENT_SYSTEM_FOREGROUND)
+    // Current foreground info (updated on each EVENT_SYSTEM_FOREGROUND)
     private string? _currentForegroundProcess;
     private IntPtr _currentForegroundHwnd;
 
@@ -98,6 +99,7 @@ public sealed class WindowAttachmentService : IDisposable
     {
         var hwnd = GetForegroundWindow();
         string? processName = null;
+        string? title = null;
 
         if (hwnd != IntPtr.Zero)
         {
@@ -110,12 +112,19 @@ public sealed class WindowAttachmentService : IDisposable
                 }
                 catch { }
             }
+
+            var titleBuilder = new System.Text.StringBuilder(512);
+            GetWindowText(hwnd, titleBuilder, titleBuilder.Capacity);
+            var windowTitle = titleBuilder.ToString();
+            if (!string.IsNullOrWhiteSpace(windowTitle))
+                title = windowTitle;
         }
 
         _currentForegroundProcess = processName;
         _currentForegroundHwnd = hwnd;
 
         EvaluateProcessAttachments(processName, hwnd);
+        EvaluateWindowTitleAttachments(title, hwnd);
     }
 
     private void EvaluateProcessAttachments(string? foregroundProcess, IntPtr hwnd)
@@ -132,19 +141,26 @@ public sealed class WindowAttachmentService : IDisposable
 
             if (matches && !IsIconic(hwnd))
             {
+                MarkAttachmentMatch(note.Id);
                 if (_visibleNoteIds.Add(note.Id))
                     ShowRequested?.Invoke(note, hwnd);
             }
             else if (isOwnProcessForeground && _visibleNoteIds.Contains(note.Id))
             {
                 // Keep already-attached note visible while user interacts with it
-                // (drag/edit focuses NoteUI, not the target process).
-                continue;
+                // (drag/edit focuses NoteUI, not the target process),
+                // but only while the target window is still actually visible.
+                if (HasAnyVisibleWindowForProcess(note.AttachTarget))
+                {
+                    MarkAttachmentMatch(note.Id);
+                    continue;
+                }
             }
-            else
+
+            if (ShouldHideAfterMiss(note.Id) && _visibleNoteIds.Remove(note.Id))
             {
-                if (_visibleNoteIds.Remove(note.Id))
-                    HideRequested?.Invoke(note.Id);
+                ClearAttachmentState(note.Id);
+                HideRequested?.Invoke(note.Id);
             }
         }
     }
@@ -180,6 +196,188 @@ public sealed class WindowAttachmentService : IDisposable
             withoutPath = Path.GetFileNameWithoutExtension(withoutPath);
 
         return withoutPath.Trim();
+    }
+
+    private void EvaluateWindowTitleAttachments(string? foregroundTitle, IntPtr hwnd)
+    {
+        var titleNotes = _notes.Notes
+            .Where(n => n.AttachMode == "title" && !string.IsNullOrEmpty(n.AttachTarget))
+            .ToList();
+
+        var isOwnProcessForeground = IsOwnProcessForeground(_currentForegroundProcess);
+
+        foreach (var note in titleNotes)
+        {
+            var matches = IsWindowTitleMatch(note.AttachTarget, foregroundTitle);
+
+            if (matches && !IsIconic(hwnd))
+            {
+                MarkAttachmentMatch(note.Id);
+                if (_visibleNoteIds.Add(note.Id))
+                    ShowRequested?.Invoke(note, hwnd);
+            }
+            else if (isOwnProcessForeground && _visibleNoteIds.Contains(note.Id))
+            {
+                // Keep already-attached note visible while user interacts with it,
+                // but only while a matching target window is still actually visible.
+                if (HasAnyVisibleWindowForTitle(note.AttachTarget))
+                {
+                    MarkAttachmentMatch(note.Id);
+                    continue;
+                }
+            }
+
+            if (ShouldHideAfterMiss(note.Id) && _visibleNoteIds.Remove(note.Id))
+            {
+                ClearAttachmentState(note.Id);
+                HideRequested?.Invoke(note.Id);
+            }
+        }
+    }
+
+    private static bool IsWindowTitleMatch(string? configuredTarget, string? foregroundTitle)
+    {
+        if (string.IsNullOrWhiteSpace(configuredTarget) || string.IsNullOrWhiteSpace(foregroundTitle))
+            return false;
+
+        var target = NormalizeWindowTitle(configuredTarget);
+        if (target.EndsWith("...", StringComparison.Ordinal))
+            target = target[..^3].Trim();
+        var title = NormalizeWindowTitle(foregroundTitle);
+        if (target.Length == 0 || title.Length == 0)
+            return false;
+
+        if (string.Equals(target, title, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (title.Contains(target, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (target.Contains(title, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static string NormalizeWindowTitle(string raw)
+    {
+        var value = raw.Trim();
+        if (value.Length == 0)
+            return value;
+
+        string[] browserSuffixes =
+        [
+            " - Google Chrome",
+            " - Microsoft Edge",
+            " - Mozilla Firefox",
+            " - Brave",
+            " - Opera",
+            " - Arc",
+            " - Vivaldi",
+            " - Chromium",
+            " - Internet Explorer"
+        ];
+
+        foreach (var suffix in browserSuffixes)
+        {
+            if (value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                value = value[..^suffix.Length].Trim();
+                break;
+            }
+        }
+
+        return value;
+    }
+
+    private bool HasAnyVisibleWindowForProcess(string? configuredTarget)
+    {
+        if (string.IsNullOrWhiteSpace(configuredTarget))
+            return false;
+
+        var found = false;
+        EnumWindows((candidateHwnd, _) =>
+        {
+            if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                return true;
+
+            GetWindowThreadProcessId(candidateHwnd, out var pid);
+            if (pid == 0)
+                return true;
+
+            try
+            {
+                var processName = Process.GetProcessById((int)pid).ProcessName;
+                if (IsSameProcessTarget(configuredTarget, processName))
+                {
+                    found = true;
+                    return false;
+                }
+            }
+            catch { }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return found;
+    }
+
+    private bool HasAnyVisibleWindowForTitle(string? configuredTarget)
+    {
+        if (string.IsNullOrWhiteSpace(configuredTarget))
+            return false;
+
+        var found = false;
+        EnumWindows((candidateHwnd, _) =>
+        {
+            if (!IsWindowVisible(candidateHwnd) || IsIconic(candidateHwnd))
+                return true;
+
+            // Ignore NoteUI windows so matching relies on real target windows.
+            GetWindowThreadProcessId(candidateHwnd, out var pid);
+            if (pid != 0)
+            {
+                try
+                {
+                    var processName = Process.GetProcessById((int)pid).ProcessName;
+                    if (IsOwnProcessForeground(processName))
+                        return true;
+                }
+                catch { }
+            }
+
+            var titleBuilder = new System.Text.StringBuilder(512);
+            GetWindowText(candidateHwnd, titleBuilder, titleBuilder.Capacity);
+            var title = titleBuilder.ToString();
+            if (!string.IsNullOrWhiteSpace(title) && IsWindowTitleMatch(configuredTarget, title))
+            {
+                found = true;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return found;
+    }
+
+    private void MarkAttachmentMatch(string noteId)
+    {
+        _attachmentMissCounts.Remove(noteId);
+    }
+
+    private bool ShouldHideAfterMiss(string noteId, int requiredMisses = 2)
+    {
+        var misses = 1;
+        if (_attachmentMissCounts.TryGetValue(noteId, out var current))
+            misses = current + 1;
+        _attachmentMissCounts[noteId] = misses;
+        return misses >= requiredMisses;
+    }
+
+    private void ClearAttachmentState(string noteId)
+    {
+        _attachmentMissCounts.Remove(noteId);
     }
 
     // ── Explorer folder monitoring ──────────────────────────────────
