@@ -486,6 +486,19 @@ public class NoteEntry
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    // Window position, size & state
+    public int? PosX { get; set; }
+    public int? PosY { get; set; }
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public bool IsCompact { get; set; }
+
+    // Attachment: attach note to a running process or an Explorer folder
+    public string? AttachTarget { get; set; }    // process name (e.g. "notepad") or folder path
+    public string? AttachMode { get; set; }      // "process" | "folder" | null
+    public int AttachOffsetX { get; set; }       // relative X offset to target window
+    public int AttachOffsetY { get; set; }       // relative Y offset to target window
+
     private static readonly string[] MonthNames =
         ["", "janv.", "f\u00e9vr.", "mars", "avr.", "mai", "juin", "juil.", "ao\u00fbt", "sept.", "oct.", "nov.", "d\u00e9c."];
 

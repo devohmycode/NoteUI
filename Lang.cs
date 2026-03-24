@@ -322,6 +322,15 @@ public static class Lang
             ["ai_prompt_title"] = "Title",
             ["ai_prompt_content"] = "Content",
             ["ai_prompt_edit"] = "Edit",
+
+            // ── Attachment ──────────────────────────────────────────
+            ["attach_to_window"] = "Attach to window",
+            ["attach_to_program"] = "Attach to program",
+            ["attach_to_folder"] = "Attach to folder",
+            ["attached_to"] = "Attached to",
+            ["detach"] = "Detach",
+            ["select_program"] = "Select a program",
+            ["no_windows_found"] = "No windows found",
         },
 
         ["fr"] = new()
@@ -640,6 +649,15 @@ public static class Lang
             ["ai_prompt_title"] = "Titre",
             ["ai_prompt_content"] = "Contenu",
             ["ai_prompt_edit"] = "Modifier",
+
+            // ── Attachment ──────────────────────────────────────────
+            ["attach_to_window"] = "Attacher à une fenêtre",
+            ["attach_to_program"] = "Attacher à un programme",
+            ["attach_to_folder"] = "Attacher à un dossier",
+            ["attached_to"] = "Attaché à",
+            ["detach"] = "Détacher",
+            ["select_program"] = "Sélectionner un programme",
+            ["no_windows_found"] = "Aucune fenêtre trouvée",
         }
     };
 

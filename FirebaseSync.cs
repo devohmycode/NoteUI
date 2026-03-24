@@ -401,6 +401,15 @@ public class FirebaseSync : IDisposable
             }).ToList(),
             CreatedAt = remote.CreatedAt,
             UpdatedAt = remote.UpdatedAt,
+            PosX = remote.PosX,
+            PosY = remote.PosY,
+            Width = remote.Width,
+            Height = remote.Height,
+            IsCompact = remote.IsCompact,
+            AttachTarget = remote.AttachTarget,
+            AttachMode = remote.AttachMode,
+            AttachOffsetX = remote.AttachOffsetX,
+            AttachOffsetY = remote.AttachOffsetY,
         };
     }
 
@@ -426,6 +435,15 @@ public class FirebaseSync : IDisposable
         }).ToList(),
         CreatedAt = n.CreatedAt,
         UpdatedAt = n.UpdatedAt,
+        PosX = n.PosX,
+        PosY = n.PosY,
+        Width = n.Width,
+        Height = n.Height,
+        IsCompact = n.IsCompact,
+        AttachTarget = n.AttachTarget,
+        AttachMode = n.AttachMode,
+        AttachOffsetX = n.AttachOffsetX,
+        AttachOffsetY = n.AttachOffsetY,
     };
 
     /// <summary>

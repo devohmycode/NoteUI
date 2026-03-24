@@ -73,6 +73,7 @@ public sealed partial class NotepadWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(920, 640));
         WindowHelper.CenterOnScreen(this);
         WindowShadow.Apply(this);
+        WindowHelper.AddResizeGrips(this);
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
         if (File.Exists(iconPath))

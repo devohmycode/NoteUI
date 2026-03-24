@@ -22,8 +22,10 @@ public sealed partial class NoteWindow : Window
     private SystemBackdropConfiguration? _configSource;
 
     private bool _isCompact;
-    private const int FullNoteHeight = 450;
+    private const int DefaultNoteHeight = 450;
     private const int CompactNoteHeight = 40;
+    private int _preCompactWidth = 400;
+    private int _preCompactHeight = DefaultNoteHeight;
     private int _targetHeight;
     private int _currentAnimHeight;
     private DispatcherTimer? _animTimer;
@@ -50,10 +52,13 @@ public sealed partial class NoteWindow : Window
 
     public string NoteId => _note.Id;
     public bool IsCompact => _isCompact;
+    public int PreCompactWidth => _preCompactWidth;
+    public int PreCompactHeight => _preCompactHeight;
 
     public event Action? NoteChanged;
     public event Action? OpenInNotepadRequested;
     public event Action? ArchiveRequested;
+    public event Action? AttachmentChanged;
 
     public record ParentRect(int X, int Y, int Width, int Height);
 
@@ -71,11 +76,12 @@ public sealed partial class NoteWindow : Window
         AppWindow.TitleBar.ButtonInactiveBackgroundColor = transparent;
         var presenter = WindowHelper.GetOverlappedPresenter(this);
         presenter.SetBorderAndTitleBar(false, false);
-        presenter.IsResizable = false;
+        presenter.IsResizable = true;
 
-        WindowHelper.RemoveWindowBorder(this);
+        WindowHelper.RemoveWindowBorderKeepResize(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(400, 450));
         WindowShadow.Apply(this);
+        WindowHelper.AddResizeGrips(this);
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
         if (File.Exists(iconPath))
@@ -123,6 +129,8 @@ public sealed partial class NoteWindow : Window
         RefreshAiUi();
         NoteEditor.ContextRequested += NoteEditor_ContextRequested;
         TaskNoteEditor.ContextRequested += TaskNoteEditor_ContextRequested;
+        UpdateAttachIcon();
+        TitleBarGrid.SizeChanged += TitleBarGrid_SizeChanged;
 
         if (note.NoteType == "tasklist")
         {
@@ -174,12 +182,21 @@ public sealed partial class NoteWindow : Window
         if (_isCompact == compact)
             return;
 
+        if (!_isCompact && compact)
+        {
+            // Save current size before compacting
+            _preCompactWidth = AppWindow.Size.Width;
+            _preCompactHeight = AppWindow.Size.Height;
+        }
+
         _isCompact = compact;
 
+        // CompactIcon may not be rendered yet (ActualWidth==0 at init),
+        // so use a fixed center point matching the icon size.
         var iconVisual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(CompactIcon);
-        iconVisual.CenterPoint = new System.Numerics.Vector3(
-            (float)(CompactIcon.ActualWidth / 2),
-            (float)(CompactIcon.ActualHeight / 2), 0);
+        var cx = CompactIcon.ActualWidth > 0 ? (float)(CompactIcon.ActualWidth / 2) : 6f;
+        var cy = CompactIcon.ActualHeight > 0 ? (float)(CompactIcon.ActualHeight / 2) : 6f;
+        iconVisual.CenterPoint = new System.Numerics.Vector3(cx, cy, 0);
 
         if (animate)
         {
@@ -282,14 +299,15 @@ public sealed partial class NoteWindow : Window
                 StatusBar.Opacity = 1;
         }
 
-        _targetHeight = _isCompact ? CompactNoteHeight : FullNoteHeight;
+        _targetHeight = _isCompact ? CompactNoteHeight : _preCompactHeight;
         _animTimer?.Stop();
         _animTimer = null;
 
         if (!animate)
         {
             _currentAnimHeight = _targetHeight;
-            AppWindow.Resize(new Windows.Graphics.SizeInt32(400, _targetHeight));
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(
+                _isCompact ? AppWindow.Size.Width : _preCompactWidth, _targetHeight));
             return;
         }
 
@@ -494,7 +512,7 @@ public sealed partial class NoteWindow : Window
             totalHeight = Math.Clamp(totalHeight, AutoResizeMin, AutoResizeMax);
 
             if (Math.Abs(AppWindow.Size.Height - totalHeight) > 10)
-                AppWindow.Resize(new Windows.Graphics.SizeInt32(NoteWindowWidth, totalHeight));
+                AppWindow.Resize(new Windows.Graphics.SizeInt32(AppWindow.Size.Width, totalHeight));
         }
         else
         {
@@ -518,7 +536,7 @@ public sealed partial class NoteWindow : Window
             totalHeight = Math.Clamp(totalHeight, AutoResizeMin, AutoResizeMax);
 
             if (Math.Abs(AppWindow.Size.Height - totalHeight) > 10)
-                AppWindow.Resize(new Windows.Graphics.SizeInt32(NoteWindowWidth, totalHeight));
+                AppWindow.Resize(new Windows.Graphics.SizeInt32(AppWindow.Size.Width, totalHeight));
         }
     }
 
@@ -1762,6 +1780,10 @@ public sealed partial class NoteWindow : Window
                 SaveCurrentNote();
                 ActionPanel.ShowSnippetFlyout(MenuButton, _note.Id, _snippetManager, _note.Content);
             }),
+            new("\uE723",
+                !string.IsNullOrEmpty(_note.AttachMode)
+                    ? $"{Lang.T("attached_to")} {(_note.AttachMode == "process" ? _note.AttachTarget : System.IO.Path.GetFileName(_note.AttachTarget))}"
+                    : Lang.T("attach_to_window"), [], () => ShowAttachMenu()),
             new("\uE7B8", _note.IsArchived ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
             {
                 _notesManager.ToggleArchive(_note.Id);
@@ -1779,6 +1801,111 @@ public sealed partial class NoteWindow : Window
         var flyout = ActionPanel.Create(Lang.T("actions"), actions);
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
         flyout.ShowAt(MenuButton);
+    }
+
+    // ── Attachment menu ────────────────────────────────────────
+
+    private void ShowAttachMenu()
+    {
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new("\uE737", Lang.T("attach_to_program"), [], () => ShowRunningProgramsList()),
+            new("\uE8B7", Lang.T("attach_to_folder"), [], async () => await PickAttachFolder()),
+        };
+
+        if (!string.IsNullOrEmpty(_note.AttachMode))
+        {
+            actions.Add(new("\uE711", Lang.T("detach"), [], () =>
+            {
+                _note.AttachTarget = null;
+                _note.AttachMode = null;
+                _note.AttachOffsetX = 0;
+                _note.AttachOffsetY = 0;
+                _notesManager.Save();
+                UpdateAttachIcon();
+                NoteChanged?.Invoke();
+                AttachmentChanged?.Invoke();
+            }, IsDestructive: true));
+        }
+
+        var flyout = ActionPanel.Create(Lang.T("attach_to_window"), actions);
+        flyout.ShowAt(MenuButton);
+    }
+
+    private void ShowRunningProgramsList()
+    {
+        var programs = WindowAttachmentHelper.GetVisibleWindows();
+        if (programs.Count == 0)
+        {
+            var empty = ActionPanel.Create(Lang.T("select_program"),
+                [new(null, Lang.T("no_windows_found"), [], () => { })]);
+            empty.ShowAt(MenuButton);
+            return;
+        }
+
+        var actions = programs.Select(p =>
+            new ActionPanel.ActionItem(null, $"{p.ProcessName}  —  {p.Title}", [], () =>
+            {
+                _note.AttachTarget = p.ProcessName;
+                _note.AttachMode = "process";
+                _note.AttachOffsetX = 0;
+                _note.AttachOffsetY = 0;
+                _notesManager.Save();
+                UpdateAttachIcon();
+                NoteChanged?.Invoke();
+                AttachmentChanged?.Invoke();
+            })
+        ).ToList();
+
+        var flyout = ActionPanel.Create(Lang.T("select_program"), actions);
+        flyout.ShowAt(MenuButton);
+    }
+
+    private async Task PickAttachFolder()
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
+        picker.FileTypeFilter.Add("*");
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        _note.AttachTarget = folder.Path;
+        _note.AttachMode = "folder";
+        _note.AttachOffsetX = 0;
+        _note.AttachOffsetY = 0;
+        _notesManager.Save();
+        UpdateAttachIcon();
+        NoteChanged?.Invoke();
+        AttachmentChanged?.Invoke();
+    }
+
+    private void TitleBarGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Hide title when window is too narrow to avoid overlap with buttons
+        // MenuButton ~40px + right buttons ~160px = ~200px reserved
+        const double minWidthForTitle = 240;
+        var shouldShow = e.NewSize.Width >= minWidthForTitle && !_isCompact || _isCompact;
+        TitleText.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateAttachIcon()
+    {
+        if (AttachIcon != null)
+        {
+            AttachIcon.Visibility = !string.IsNullOrEmpty(_note.AttachMode)
+                ? Visibility.Visible : Visibility.Collapsed;
+
+            if (!string.IsNullOrEmpty(_note.AttachMode))
+            {
+                var target = _note.AttachMode == "process"
+                    ? _note.AttachTarget
+                    : System.IO.Path.GetFileName(_note.AttachTarget);
+                ToolTipService.SetToolTip(AttachIcon, $"{Lang.T("attached_to")} {target}");
+            }
+        }
     }
 
     private void ShowTaskReminderDialog(TaskItem task, FontIcon bellIcon, Button reminderBtn)
@@ -2110,13 +2237,17 @@ public sealed partial class NoteWindow : Window
         }
     }
 
-    private void Pin_Click(object sender, RoutedEventArgs e)
+    public void SetPinnedOnTop(bool pinned)
     {
-        _isPinnedOnTop = !_isPinnedOnTop;
+        _isPinnedOnTop = pinned;
         if (AppWindow.Presenter is OverlappedPresenter presenter)
             presenter.IsAlwaysOnTop = _isPinnedOnTop;
-
         PinIcon.Glyph = _isPinnedOnTop ? "\uE77A" : "\uE718";
+    }
+
+    private void Pin_Click(object sender, RoutedEventArgs e)
+    {
+        SetPinnedOnTop(!_isPinnedOnTop);
     }
 
     private void Lock_Click(object sender, RoutedEventArgs e)
@@ -2165,17 +2296,19 @@ public sealed partial class NoteWindow : Window
     private void CompactAnimTick(object? sender, object e)
     {
         var diff = _targetHeight - _currentAnimHeight;
-        if (Math.Abs(diff) < 3)
+        var step = diff / 4;
+        if (step == 0 || Math.Abs(diff) < 3)
         {
             _currentAnimHeight = _targetHeight;
+            var finalWidth = _isCompact ? AppWindow.Size.Width : _preCompactWidth;
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(finalWidth, _currentAnimHeight));
             _animTimer?.Stop();
             _animTimer = null;
+            return;
         }
-        else
-        {
-            _currentAnimHeight += diff / 4;
-        }
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(400, _currentAnimHeight));
+        _currentAnimHeight += step;
+        var currentWidth = _isCompact ? AppWindow.Size.Width : _preCompactWidth;
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(currentWidth, _currentAnimHeight));
     }
 
     // ── Inline title editing ────────────────────────────────────

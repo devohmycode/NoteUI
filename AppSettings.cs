@@ -469,7 +469,7 @@ public static class AppSettings
         return "system";
     }
 
-    public static (int X, int Y)? LoadMainWindowPosition()
+    public static (int X, int Y, int W, int H)? LoadMainWindowPosition()
     {
         try
         {
@@ -484,7 +484,10 @@ public static class AppSettings
                 xProp.TryGetInt32(out var x) &&
                 yProp.TryGetInt32(out var y))
             {
-                return (x, y);
+                int w = 380, h = 650;
+                if (root.TryGetProperty("mainWindowW", out var wProp) && wProp.TryGetInt32(out var ww)) w = ww;
+                if (root.TryGetProperty("mainWindowH", out var hProp) && hProp.TryGetInt32(out var hh)) h = hh;
+                return (x, y, w, h);
             }
         }
         catch { }
@@ -528,12 +531,47 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["theme"] = theme });
     }
 
-    public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position)
+    public static void SaveNotepadPosition(int x, int y, int w, int h)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["notepadX"] = x,
+            ["notepadY"] = y,
+            ["notepadW"] = w,
+            ["notepadH"] = h
+        });
+    }
+
+    public static (int X, int Y, int W, int H)? LoadNotepadPosition()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            var json = File.ReadAllText(SettingsPath);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("notepadX", out var xProp) &&
+                doc.RootElement.TryGetProperty("notepadY", out var yProp) &&
+                xProp.TryGetInt32(out var x) &&
+                yProp.TryGetInt32(out var y))
+            {
+                int w = 920, h = 640;
+                if (doc.RootElement.TryGetProperty("notepadW", out var wProp) && wProp.TryGetInt32(out var ww)) w = ww;
+                if (doc.RootElement.TryGetProperty("notepadH", out var hProp) && hProp.TryGetInt32(out var hh)) h = hh;
+                return (x, y, w, h);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position, Windows.Graphics.SizeInt32 size)
     {
         MergeAndSaveSettings(new Dictionary<string, object>
         {
             ["mainWindowX"] = position.X,
-            ["mainWindowY"] = position.Y
+            ["mainWindowY"] = position.Y,
+            ["mainWindowW"] = size.Width,
+            ["mainWindowH"] = size.Height
         });
     }
 
