@@ -16,6 +16,7 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - Inline title editing
 - Auto-save on every change
 - Keyboard-accessible note cards (Tab to focus, Enter to open)
+- Lock notes with a master password (SHA-256 + DPAPI encrypted)
 
 ### Task Lists
 - Dedicated task list note type with checkboxes
@@ -51,7 +52,7 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 
 ### Voice Notes
 - Speech-to-text recording with real-time transcription
-- Two recognition engines: **Vosk** (lightweight) and **Whisper** (OpenAI, higher accuracy)
+- Three recognition engines: **Vosk** (lightweight), **Whisper** (OpenAI, higher accuracy), and **Groq Cloud** (Whisper Large v3 via API)
 - French and English language support
 - In-app model download with progress tracking
 - Live audio level visualization during recording
@@ -65,17 +66,27 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 | Whisper tiny | Whisper | 75 MB | FR, EN |
 | Whisper base | Whisper | 140 MB | FR, EN |
 | Whisper small | Whisper | 460 MB | FR, EN |
+| Whisper Large v3 | Groq Cloud | — | FR, EN |
+| Whisper Large v3 Turbo | Groq Cloud | — | FR, EN |
 
 ### OCR & Screen Capture
 - **OCR**: full-screen region capture overlay with drag-and-drop selection, text extraction via Windows OCR engine
 - **Screenshot**: triggers Windows Snipping Tool (Win+Shift+S), auto-scales and inserts the image into the current note
 - Auto-detects language (French / English) from the system profile
 
+### Window Attachment
+- Attach a note to a running **process** (e.g. Visual Studio, Discord) — note appears only when that app is in the foreground
+- Attach a note to a **window title** fragment (e.g. a specific browser tab or document)
+- Attach a note to a **folder** — note appears when the folder is open in Explorer
+- Automatic show/hide with grace period to avoid flickering
+
 ### Cloud Sync
 - **Firebase Realtime Database** with email/password and Google Sign-In (OAuth 2.0 PKCE)
+- **Real-time sync** via Server-Sent Events (SSE) — instant propagation of remote changes
 - **WebDAV / Nextcloud** with username/password authentication
 - Notes and settings sync across devices
-- Automatic conflict resolution (most recent version wins)
+- Open note windows refresh automatically when remote changes arrive
+- Automatic conflict resolution (most recent version wins, timezone-aware)
 - Automatic token refresh
 - Auto-reconnect on startup from saved credentials
 
@@ -150,7 +161,7 @@ Output: `installer/NoteUI-Setup.exe`
 - **Framework**: WinUI 3 / Windows App SDK 1.8
 - **Runtime**: .NET 10 (self-contained, win-x64)
 - **AI (local)**: LLamaSharp 0.26.0 (CPU + CUDA 12)
-- **AI (cloud)**: OpenAI, Anthropic Claude, Google Gemini REST APIs
+- **AI (cloud)**: OpenAI, Anthropic Claude, Google Gemini, Groq REST APIs
 - **Audio**: NAudio 2.2.1
 - **Speech-to-text**: Vosk 0.3.38, Whisper.net 1.7.4
 - **OCR**: Windows.Media.Ocr (built-in Windows OCR engine)
