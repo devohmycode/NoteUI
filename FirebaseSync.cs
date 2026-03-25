@@ -29,6 +29,9 @@ public class FirebaseSync : IDisposable
     private string? _refreshToken;
     private Timer? _refreshTimer;
 
+    private CancellationTokenSource? _listenerCts;
+    private int _sseSkips;
+
     public bool IsConfigured => !string.IsNullOrEmpty(_databaseUrl) && !string.IsNullOrEmpty(_apiKey);
     public bool IsConnected => _idToken != null;
     public string? Email { get; private set; }
@@ -377,7 +380,7 @@ public class FirebaseSync : IDisposable
 
     private static NoteEntry MergeRemoteIntoLocal(NoteEntry local, NoteEntry remote)
     {
-        if (remote.UpdatedAt <= local.UpdatedAt)
+        if (remote.UpdatedAt.ToUniversalTime() <= local.UpdatedAt.ToUniversalTime())
             return local;
         return new NoteEntry
         {
@@ -465,7 +468,7 @@ public class FirebaseSync : IDisposable
                 merged[id] = l;
                 continue;
             }
-            merged[id] = l.UpdatedAt >= r.UpdatedAt ? l : r;
+            merged[id] = l.UpdatedAt.ToUniversalTime() >= r.UpdatedAt.ToUniversalTime() ? l : r;
         }
 
         foreach (var (id, r) in remote)
@@ -589,7 +592,12 @@ public class FirebaseSync : IDisposable
             };
             var patchJson = JsonSerializer.Serialize(patchPayload);
             using var patchResponse = await _http.PatchAsync(userUrl, new StringContent(patchJson, Encoding.UTF8, "application/json"));
-            return patchResponse.IsSuccessStatusCode;
+            if (patchResponse.IsSuccessStatusCode)
+            {
+                Interlocked.Increment(ref _sseSkips);
+                return true;
+            }
+            return false;
         }
         catch { return false; }
     }
@@ -626,8 +634,90 @@ public class FirebaseSync : IDisposable
         catch { return null; }
     }
 
+    // ── SSE Real-time Listener ──────────────────────────────────
+
+    public void StartListening(Action onDataChanged)
+    {
+        StopListening();
+        _listenerCts = new CancellationTokenSource();
+        _ = ListenLoopAsync(onDataChanged, _listenerCts.Token);
+    }
+
+    public void StopListening()
+    {
+        _listenerCts?.Cancel();
+        _listenerCts?.Dispose();
+        _listenerCts = null;
+    }
+
+    private async Task ListenLoopAsync(Action onDataChanged, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await ListenOnceAsync(onDataChanged, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch
+            {
+                try { await Task.Delay(5000, ct); } catch { break; }
+            }
+        }
+    }
+
+    private async Task ListenOnceAsync(Action onDataChanged, CancellationToken ct)
+    {
+        if (!IsConnected || _localId == null)
+        {
+            await Task.Delay(5000, ct);
+            return;
+        }
+
+        var url = $"{_databaseUrl}/users/{_localId}/notes.json?auth={_idToken}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        using var sseClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        using var response = await sseClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        var isFirstPut = true;
+
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+
+            if (!line.StartsWith("event:", StringComparison.Ordinal)) continue;
+            var eventType = line["event:".Length..].Trim();
+
+            if (eventType is not "put" and not "patch") continue;
+
+            // Skip the initial full snapshot (we already have the data)
+            if (isFirstPut)
+            {
+                isFirstPut = false;
+                continue;
+            }
+
+            // Skip echoes of our own writes
+            if (Interlocked.CompareExchange(ref _sseSkips, 0, 0) > 0)
+            {
+                Interlocked.Decrement(ref _sseSkips);
+                continue;
+            }
+
+            onDataChanged();
+        }
+    }
+
     public void Dispose()
     {
+        StopListening();
         _refreshTimer?.Dispose();
         _http.Dispose();
     }

@@ -46,7 +46,6 @@ public sealed partial class MainWindow : Window
     private const int DefaultFullHeight = 650;
     private const int CompactHeight = 40;
     private Microsoft.UI.Xaml.DispatcherTimer? _animTimer;
-    private Microsoft.UI.Xaml.DispatcherTimer? _firebasePeriodicTimer;
     private int _preCompactWidth = 380;
     private int _preCompactHeight = DefaultFullHeight;
     private int _targetHeight;
@@ -125,7 +124,7 @@ public sealed partial class MainWindow : Window
         this.Closed += (_, _) =>
         {
             SaveMainWindowPosition();
-            StopFirebasePeriodicPull();
+            StopFirebaseListener();
             _attachmentService?.Dispose();
             foreach (var w in _attachedNoteWindows.Values.ToList())
             {
@@ -182,32 +181,23 @@ public sealed partial class MainWindow : Window
         await _notes.InitWebDavFromSettings();
         UpdateSyncButtonVisibility();
         RefreshCurrentView();
-        StartFirebasePeriodicPull();
+        StartFirebaseListener();
     }
 
-    /// <summary>Background pull from RTDB (same idea as web <c>onValue</c>), so web deletes propagate without pressing Sync.</summary>
-    private void StartFirebasePeriodicPull()
+    /// <summary>Real-time SSE listener on RTDB notes, replaces periodic polling.</summary>
+    private void StartFirebaseListener()
     {
-        StopFirebasePeriodicPull();
-        if (_notes.Firebase is not { IsConnected: true }) return;
-        _firebasePeriodicTimer = new Microsoft.UI.Xaml.DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(45),
-        };
-        _firebasePeriodicTimer.Tick += (_, _) =>
+        StopFirebaseListener();
+        if (_notes.Firebase is not { IsConnected: true } fb) return;
+        fb.StartListening(() =>
         {
             DispatcherQueue.TryEnqueue(() => _ = PullFirebaseInBackgroundAsync());
-        };
-        _firebasePeriodicTimer.Start();
+        });
     }
 
-    private void StopFirebasePeriodicPull()
+    private void StopFirebaseListener()
     {
-        if (_firebasePeriodicTimer != null)
-        {
-            _firebasePeriodicTimer.Stop();
-            _firebasePeriodicTimer = null;
-        }
+        _notes.Firebase?.StopListening();
     }
 
     private async Task PullFirebaseInBackgroundAsync()
@@ -215,7 +205,24 @@ public sealed partial class MainWindow : Window
         if (_notes.IsSyncing) return;
         if (_notes.Firebase is not { IsConnected: true }) return;
         await _notes.SyncFromFirebase();
+        RefreshOpenNoteWindows();
         RefreshCurrentView();
+    }
+
+    private void RefreshOpenNoteWindows()
+    {
+        foreach (var w in _openNoteWindows)
+        {
+            var updated = _notes.Notes.FirstOrDefault(n => n.Id == w.NoteId);
+            if (updated != null)
+                w.ReloadAfterSync(updated);
+        }
+        foreach (var (id, w) in _attachedNoteWindows)
+        {
+            var updated = _notes.Notes.FirstOrDefault(n => n.Id == id);
+            if (updated != null)
+                w.ReloadAfterSync(updated);
+        }
     }
 
     private void UpdateSyncButtonVisibility()
@@ -232,6 +239,7 @@ public sealed partial class MainWindow : Window
         {
             await _notes.SyncSettingsFromFirebase();
             await _notes.SyncFromFirebase();
+            RefreshOpenNoteWindows();
             RefreshCurrentView();
         }
         finally
@@ -1119,13 +1127,14 @@ public sealed partial class MainWindow : Window
             onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
             onDisconnectFirebase: () =>
             {
-                StopFirebasePeriodicPull();
+                StopFirebaseListener();
                 _notes.DisconnectFirebase();
                 UpdateSyncButtonVisibility();
             },
             onSyncFirebase: async () =>
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
                 RefreshCurrentView();
             },
             onConfigureWebDav: async () => await ShowWebDavConfigDialog(),
@@ -1560,9 +1569,10 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
                 UpdateSyncButtonVisibility();
                 RefreshCurrentView();
-                StartFirebasePeriodicPull();
+                StartFirebaseListener();
                 googleSignInDone = true;
             }
             else
@@ -1596,9 +1606,10 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
                 UpdateSyncButtonVisibility();
                 RefreshCurrentView();
-                StartFirebasePeriodicPull();
+                StartFirebaseListener();
                 break;
             }
 

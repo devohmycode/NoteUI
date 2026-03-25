@@ -46,7 +46,7 @@ public class NotesManager
         Load();
     }
 
-    public void Save()
+    public void Save(bool localOnly = false)
     {
         try
         {
@@ -55,6 +55,8 @@ public class NotesManager
             File.WriteAllText(_savePath, json);
         }
         catch { }
+
+        if (localOnly) return;
 
         // Fire-and-forget push to cloud
         if (Firebase is { IsConnected: true })
@@ -137,7 +139,7 @@ public class NotesManager
 
             _notes.Clear();
             _notes.AddRange(merged);
-            Save();
+            Save(localOnly: true);
             return true;
         }
         catch { return false; }
@@ -264,13 +266,13 @@ public class NotesManager
             foreach (var n in remote)
             {
                 // Prefer remote when newer or same instant (avoids losing pin-only web updates if clocks align to the same tick).
-                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt >= local.UpdatedAt)
+                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt.ToUniversalTime() >= local.UpdatedAt.ToUniversalTime())
                     merged[n.Id] = n;
             }
 
             _notes.Clear();
             _notes.AddRange(merged.Values);
-            Save();
+            Save(localOnly: true);
             return true;
         }
         catch { return false; }
@@ -631,7 +633,7 @@ public class NoteEntry
                 }
                 continue;
             }
-            if (depth <= 1 && (c >= ' ' || c == '\n' || c == '\t'))
+            if (depth <= 1 && c >= ' ')
                 result.Append(c);
             i++;
         }

@@ -13,7 +13,7 @@ namespace NoteUI;
 public sealed partial class NoteWindow : Window
 {
     private readonly NotesManager _notesManager;
-    private readonly NoteEntry _note;
+    private NoteEntry _note;
     private SnippetManager? _snippetManager;
     private bool _isPinnedOnTop;
     private bool _suppressTextChanged;
@@ -455,6 +455,21 @@ public sealed partial class NoteWindow : Window
         _note.Content = rtf;
         _notesManager.UpdateNote(_note.Id, _note.Content, _note.Title, _note.Color);
         NoteChanged?.Invoke();
+    }
+
+    public void ReloadAfterSync(NoteEntry updatedNote)
+    {
+        var changed = _note.Content != updatedNote.Content
+                   || _note.Title != updatedNote.Title
+                   || _note.Color != updatedNote.Color;
+        _note = updatedNote;
+        if (!changed) return;
+        TitleText.Text = _note.Title;
+        if (_note.NoteType == "tasklist")
+            LoadTaskNoteContent();
+        else
+            LoadNote();
+        ApplyNoteColor(_note.Color);
     }
 
     // ── Task note (free-form text in tasklist mode) ─────────────
