@@ -33,15 +33,21 @@ public sealed partial class MainWindow : Window
     private AiManager? _aiManager;
     private HotkeyService? _hotkeyService;
 
+    private WindowAttachmentService? _attachmentService;
+    private readonly Dictionary<string, NoteWindow> _attachedNoteWindows = new();
+    private readonly Dictionary<string, IntPtr> _attachedTargetHwnds = new();
+
     private enum ViewMode { Notes, Favorites, Tags, TagFilter, Archive }
     private ViewMode _currentView = ViewMode.Notes;
     private string? _currentTagFilter;
 
     private bool _isPinned;
     private bool _isCompact;
-    private const int FullHeight = 650;
-    private const int CompactHeight = 120;
+    private const int DefaultFullHeight = 650;
+    private const int CompactHeight = 40;
     private Microsoft.UI.Xaml.DispatcherTimer? _animTimer;
+    private int _preCompactWidth = 380;
+    private int _preCompactHeight = DefaultFullHeight;
     private int _targetHeight;
     private int _currentAnimHeight;
 
@@ -56,16 +62,24 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         var presenter = WindowHelper.GetOverlappedPresenter(this);
         presenter.SetBorderAndTitleBar(false, false);
-        presenter.IsResizable = false;
+        presenter.IsResizable = true;
 
-        WindowHelper.RemoveWindowBorder(this);
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(380, 650));
+        WindowHelper.RemoveWindowBorderKeepResize(this);
         var savedMainPos = AppSettings.LoadMainWindowPosition();
         if (savedMainPos is { } pos)
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(pos.W, pos.H));
+            _preCompactWidth = pos.W;
+            _preCompactHeight = pos.H;
             WindowHelper.MoveToVisibleArea(this, pos.X, pos.Y);
+        }
         else
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(380, 650));
             WindowHelper.MoveToBottomRight(this);
+        }
         WindowShadow.Apply(this);
+        WindowHelper.AddResizeGrips(this);
 
         // Set window icon (for taskbar / Alt+Tab)
         var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
@@ -98,6 +112,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += (_, args) =>
         {
             SaveMainWindowPosition();
+            SaveNotePositions();
             if (!_isExiting)
             {
                 SaveOpenedSecondaryWindows();
@@ -109,6 +124,14 @@ public sealed partial class MainWindow : Window
         this.Closed += (_, _) =>
         {
             SaveMainWindowPosition();
+            StopFirebaseListener();
+            _attachmentService?.Dispose();
+            foreach (var w in _attachedNoteWindows.Values.ToList())
+            {
+                try { w.Close(); } catch { }
+            }
+            _attachedNoteWindows.Clear();
+            _attachedTargetHwnds.Clear();
             _textExpansion?.Stop();
             _reminderService?.Dispose();
             ReminderService.Shutdown();
@@ -127,6 +150,11 @@ public sealed partial class MainWindow : Window
         SetCompactState(AppSettings.LoadMainWindowCompact(), animate: false);
         RestorePersistedWindows();
 
+        _attachmentService = new WindowAttachmentService(_notes);
+        _attachmentService.ShowRequested += OnAttachedNoteShow;
+        _attachmentService.HideRequested += OnAttachedNoteHide;
+        _attachmentService.Start();
+
         _reminderService = new ReminderService(_notes);
         _reminderService.ReminderFired += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
 
@@ -140,6 +168,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(CompactButton, Lang.T("tip_compact"));
         ToolTipService.SetToolTip(PinButton, Lang.T("tip_pin"));
         ToolTipService.SetToolTip(SettingsButton, Lang.T("tip_settings"));
+        ToolTipService.SetToolTip(SyncButton, Lang.T("tip_sync"));
         ToolTipService.SetToolTip(CloseButton, Lang.T("tip_close"));
         ToolTipService.SetToolTip(QuickAccessButton, Lang.T("tip_quick_access"));
         SearchBox.PlaceholderText = Lang.T("search");
@@ -150,19 +179,109 @@ public sealed partial class MainWindow : Window
     {
         await _notes.InitFirebaseFromSettings();
         await _notes.InitWebDavFromSettings();
+        UpdateSyncButtonVisibility();
         RefreshCurrentView();
+        StartFirebaseListener();
+    }
+
+    /// <summary>Real-time SSE listener on RTDB notes, replaces periodic polling.</summary>
+    private void StartFirebaseListener()
+    {
+        StopFirebaseListener();
+        if (_notes.Firebase is not { IsConnected: true } fb) return;
+        fb.StartListening(() =>
+        {
+            DispatcherQueue.TryEnqueue(() => _ = PullFirebaseInBackgroundAsync());
+        });
+    }
+
+    private void StopFirebaseListener()
+    {
+        _notes.Firebase?.StopListening();
+    }
+
+    private async Task PullFirebaseInBackgroundAsync()
+    {
+        if (_notes.IsSyncing) return;
+        if (_notes.Firebase is not { IsConnected: true }) return;
+        await _notes.SyncFromFirebase();
+        RefreshOpenNoteWindows();
+        RefreshCurrentView();
+    }
+
+    private void RefreshOpenNoteWindows()
+    {
+        foreach (var w in _openNoteWindows)
+        {
+            var updated = _notes.Notes.FirstOrDefault(n => n.Id == w.NoteId);
+            if (updated != null)
+                w.ReloadAfterSync(updated);
+        }
+        foreach (var (id, w) in _attachedNoteWindows)
+        {
+            var updated = _notes.Notes.FirstOrDefault(n => n.Id == id);
+            if (updated != null)
+                w.ReloadAfterSync(updated);
+        }
+    }
+
+    private void UpdateSyncButtonVisibility()
+    {
+        SyncButton.Visibility = _notes.Firebase is { IsConnected: true }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncButton.IsEnabled = false;
+        try
+        {
+            await _notes.SyncSettingsFromFirebase();
+            await _notes.SyncFromFirebase();
+            RefreshOpenNoteWindows();
+            RefreshCurrentView();
+        }
+        finally
+        {
+            SyncButton.IsEnabled = true;
+        }
     }
 
     private void ExitApplication()
     {
         _isExiting = true;
         SaveMainWindowPosition();
+        SaveNotePositions();
         SaveOpenedSecondaryWindows();
         foreach (var w in _openNoteWindows.ToList())
         {
             try { w.Close(); } catch { }
         }
         this.Close();
+    }
+
+    private void SaveNotePositions()
+    {
+        foreach (var w in _openNoteWindows)
+        {
+            try
+            {
+                var pos = w.AppWindow.Position;
+                var sz = w.AppWindow.Size;
+                var note = _notes.Notes.FirstOrDefault(n => n.Id == w.NoteId);
+                if (note != null)
+                {
+                    note.PosX = pos.X;
+                    note.PosY = pos.Y;
+                    note.Width = w.IsCompact ? w.PreCompactWidth : sz.Width;
+                    note.Height = w.IsCompact ? w.PreCompactHeight : sz.Height;
+                    note.IsCompact = w.IsCompact;
+                }
+            }
+            catch { }
+        }
+        _notes.Save();
     }
 
     private void RefreshNotesList(string? search = null)
@@ -190,7 +309,7 @@ public sealed partial class MainWindow : Window
 
     private void SaveMainWindowPosition()
     {
-        AppSettings.SaveMainWindowPosition(AppWindow.Position);
+        AppSettings.SaveMainWindowPosition(AppWindow.Position, AppWindow.Size);
         AppSettings.SaveMainWindowCompact(_isCompact);
     }
 
@@ -223,6 +342,9 @@ public sealed partial class MainWindow : Window
         {
             if (window.Type == "note" && !string.IsNullOrWhiteSpace(window.NoteId))
             {
+                var noteForRestore = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+                if (noteForRestore?.IsLocked == true)
+                    continue;
                 OpenNote(window.NoteId);
                 var opened = _openNoteWindows.FirstOrDefault(w => w.NoteId == window.NoteId);
                 if (opened != null)
@@ -247,10 +369,13 @@ public sealed partial class MainWindow : Window
     {
         var color = NoteColors.Get(note.Color);
         var hasColor = !NoteColors.IsNone(note.Color);
+        var isFull = hasColor && AppSettings.LoadNoteStyle() == "full";
 
-        var cardColor = hasColor
-            ? ThemeHelper.CardBackgroundWithColor(color)
-            : ThemeHelper.CardBackground;
+        var cardColor = isFull
+            ? color
+            : hasColor
+                ? ThemeHelper.CardBackgroundWithColor(color)
+                : ThemeHelper.CardBackground;
         var cardBg = new SolidColorBrush(cardColor);
 
         var outer = new Button
@@ -263,10 +388,24 @@ public sealed partial class MainWindow : Window
             Padding = new Thickness(0),
         };
 
+        if (isFull)
+        {
+            var blackBrush = new SolidColorBrush(Microsoft.UI.Colors.Black);
+            var hoverBg = new SolidColorBrush(NoteColors.GetDarker(note.Color, 0.93));
+            var pressedBg = new SolidColorBrush(NoteColors.GetDarker(note.Color, 0.88));
+            outer.Foreground = blackBrush;
+            outer.Resources["ButtonForeground"] = blackBrush;
+            outer.Resources["ButtonForegroundPointerOver"] = blackBrush;
+            outer.Resources["ButtonForegroundPressed"] = blackBrush;
+            outer.Resources["ButtonBackground"] = cardBg;
+            outer.Resources["ButtonBackgroundPointerOver"] = hoverBg;
+            outer.Resources["ButtonBackgroundPressed"] = pressedBg;
+        }
+
         var stack = new StackPanel();
 
-        // Thin color bar at top
-        if (hasColor)
+        // Thin color bar at top (skip in full color mode — entire card is colored)
+        if (hasColor && !isFull)
         {
             stack.Children.Add(new Border
             {
@@ -305,6 +444,29 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             });
         }
+        if (note.IsLocked)
+        {
+            metaPanel.Children.Add(new FontIcon
+            {
+                Glyph = "\uE72E",
+                FontSize = 10,
+                Opacity = 0.45,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        if (!string.IsNullOrEmpty(note.AttachMode))
+        {
+            var attachIcon = new FontIcon
+            {
+                Glyph = "\uE723",
+                FontSize = 10,
+                Opacity = 0.45,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(attachIcon,
+                $"{Lang.T("attached_to")} {GetAttachTargetLabel(note)}");
+            metaPanel.Children.Add(attachIcon);
+        }
         if (!string.IsNullOrEmpty(note.TaskProgress))
         {
             metaPanel.Children.Add(new TextBlock
@@ -327,34 +489,47 @@ public sealed partial class MainWindow : Window
         content.Children.Add(titleRow);
 
         // Preview text
-        var preview = note.Preview;
-        if (!string.IsNullOrEmpty(preview))
+        if (note.IsLocked)
         {
             content.Children.Add(new TextBlock
             {
-                Text = preview,
-                TextWrapping = TextWrapping.Wrap,
-                MaxLines = 3,
-                TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
                 FontSize = 12,
                 Margin = new Thickness(0, 2, 0, 0),
-                Opacity = 0.65,
+                Opacity = 0.35,
             });
         }
-
-        // Image thumbnail (first embedded screenshot)
-        var imageBytes = note.ExtractFirstImageBytes();
-        if (imageBytes != null)
+        else
         {
-            var img = new Image
+            var preview = note.Preview;
+            if (!string.IsNullOrEmpty(preview))
             {
-                MaxHeight = 60,
-                Stretch = Stretch.Uniform,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(0, 6, 0, 0),
-            };
-            content.Children.Add(img);
-            _ = LoadThumbnailAsync(img, imageBytes);
+                content.Children.Add(new TextBlock
+                {
+                    Text = preview,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxLines = 3,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 2, 0, 0),
+                    Opacity = 0.65,
+                });
+            }
+
+            // Image thumbnail (first embedded screenshot)
+            var imageBytes = note.ExtractFirstImageBytes();
+            if (imageBytes != null)
+            {
+                var img = new Image
+                {
+                    MaxHeight = 60,
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 6, 0, 0),
+                };
+                content.Children.Add(img);
+                _ = LoadThumbnailAsync(img, imageBytes);
+            }
         }
 
         stack.Children.Add(content);
@@ -385,6 +560,20 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    private static string GetAttachTargetLabel(NoteEntry note)
+    {
+        if (string.IsNullOrWhiteSpace(note.AttachTarget))
+            return "";
+
+        return note.AttachMode switch
+        {
+            "process" => note.AttachTarget!,
+            "folder" => Path.GetFileName(note.AttachTarget!),
+            "title" => note.AttachTarget!,
+            _ => note.AttachTarget!
+        };
+    }
+
     private void ShowNoteContextMenu(string noteId, FrameworkElement target)
     {
         var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
@@ -412,6 +601,19 @@ public sealed partial class MainWindow : Window
             {
                 ActionPanel.ShowSnippetFlyout(target, noteId, _snippetManager, note?.Content ?? "");
             }),
+            new(note?.IsLocked == true ? "\uE785" : "\uE72E",
+                note?.IsLocked == true ? Lang.T("unlock") : Lang.T("lock"), [], () =>
+            {
+                HandleLockToggle(noteId, target);
+            }),
+            new("\uE723",
+                note != null && !string.IsNullOrEmpty(note.AttachMode)
+                    ? $"{Lang.T("attached_to")} {GetAttachTargetLabel(note)}"
+                    : Lang.T("attach_to_window"), [], () =>
+            {
+                if (note != null)
+                    ShowAttachMenuFromList(note, target);
+            }),
             new("\uE7B8", note?.IsArchived == true ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
             {
                 _notes.ToggleArchive(noteId);
@@ -419,13 +621,27 @@ public sealed partial class MainWindow : Window
             }),
             new("\uE74D", Lang.T("delete"), [], () =>
             {
-                var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
-                if (existing != null)
+                void DoDelete()
                 {
-                    try { existing.Close(); } catch { }
+                    var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
+                    if (existing != null)
+                    {
+                        try { existing.Close(); } catch { }
+                    }
+                    _notes.DeleteNote(noteId);
+                    RefreshCurrentView();
                 }
-                _notes.DeleteNote(noteId);
-                RefreshCurrentView();
+
+                if (note?.IsLocked == true)
+                {
+                    var storedHash = AppSettings.LoadMasterPasswordHash();
+                    if (string.IsNullOrEmpty(storedHash)) return;
+                    ActionPanel.ShowEnterPasswordFlyout(target, storedHash, DoDelete);
+                }
+                else
+                {
+                    DoDelete();
+                }
             }, IsDestructive: true),
         };
 
@@ -433,7 +649,180 @@ public sealed partial class MainWindow : Window
         flyout.ShowAt(target);
     }
 
+    private void ShowAttachMenuFromList(NoteEntry note, FrameworkElement target)
+    {
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new("\uE737", Lang.T("attach_to_program"), [], () =>
+            {
+                ShowRunningProgramsPicker(note, target);
+            }),
+            new("\uE774", Lang.T("attach_to_website"), [], () =>
+            {
+                ShowWebTabsPicker(note, target);
+            }),
+            new("\uE8B7", Lang.T("attach_to_folder"), [], async () =>
+            {
+                await PickAttachFolder(note);
+            }),
+        };
+
+        if (!string.IsNullOrEmpty(note.AttachMode))
+        {
+            actions.Add(new("\uE711", Lang.T("detach"), [], () =>
+            {
+                note.AttachTarget = null;
+                note.AttachMode = null;
+                note.AttachOffsetX = 0;
+                note.AttachOffsetY = 0;
+                _notes.Save();
+                _attachmentService?.Refresh();
+                RefreshCurrentView();
+            }, IsDestructive: true));
+        }
+
+        var flyout = ActionPanel.Create(Lang.T("attach_to_window"), actions);
+        flyout.ShowAt(target);
+    }
+
+    private void ShowRunningProgramsPicker(NoteEntry note, FrameworkElement target)
+    {
+        var programs = WindowAttachmentHelper.GetVisibleWindows();
+        if (programs.Count == 0)
+        {
+            var empty = ActionPanel.Create(Lang.T("select_program"),
+                [new(null, Lang.T("no_windows_found"), [], () => { })]);
+            empty.ShowAt(target);
+            return;
+        }
+
+        var actions = programs.Select(p =>
+            new ActionPanel.ActionItem(null, $"{p.ProcessName}  —  {p.Title}", [], () =>
+            {
+                note.AttachTarget = p.ProcessName;
+                note.AttachMode = "process";
+                note.AttachOffsetX = 0;
+                note.AttachOffsetY = 0;
+                _notes.Save();
+                _attachmentService?.Refresh();
+                RefreshCurrentView();
+            })
+        ).ToList();
+
+        var flyout = ActionPanel.Create(Lang.T("select_program"), actions);
+        flyout.ShowAt(target);
+    }
+
+    private void ShowWebTabsPicker(NoteEntry note, FrameworkElement target)
+    {
+        var tabs = WindowAttachmentHelper.GetVisibleWebTabs();
+        if (tabs.Count == 0)
+        {
+            var empty = ActionPanel.Create(Lang.T("select_website"),
+                [new(null, Lang.T("no_web_tabs_found"), [], () => { })]);
+            empty.ShowAt(target);
+            return;
+        }
+
+        var actions = tabs.Select(tab =>
+            new ActionPanel.ActionItem(null, $"{tab.ProcessName}  —  {tab.Title}", [], () =>
+            {
+                note.AttachTarget = tab.Title;
+                note.AttachMode = "title";
+                note.AttachOffsetX = 0;
+                note.AttachOffsetY = 0;
+                _notes.Save();
+                _attachmentService?.Refresh();
+                RefreshCurrentView();
+            })
+        ).ToList();
+
+        var flyout = ActionPanel.Create(Lang.T("select_website"), actions);
+        flyout.ShowAt(target);
+    }
+
+    private async Task PickAttachFolder(NoteEntry note)
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
+        picker.FileTypeFilter.Add("*");
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        note.AttachTarget = folder.Path;
+        note.AttachMode = "folder";
+        note.AttachOffsetX = 0;
+        note.AttachOffsetY = 0;
+        _notes.Save();
+        _attachmentService?.Refresh();
+        RefreshCurrentView();
+    }
+
+    private void HandleLockToggle(string noteId, FrameworkElement target)
+    {
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+        if (note == null) return;
+
+        if (note.IsLocked)
+        {
+            var storedHash = AppSettings.LoadMasterPasswordHash();
+            if (string.IsNullOrEmpty(storedHash)) return;
+            ActionPanel.ShowEnterPasswordFlyout(target, storedHash, () =>
+            {
+                _notes.ToggleLock(noteId);
+                RefreshCurrentView();
+            });
+            return;
+        }
+
+        if (!AppSettings.HasMasterPassword())
+        {
+            ActionPanel.ShowCreatePasswordFlyout(target, password =>
+            {
+                var hash = AppSettings.HashPassword(password);
+                AppSettings.SaveMasterPasswordHash(hash);
+                _notes.ToggleLock(noteId);
+                RefreshCurrentView();
+                _ = _notes.SyncSettingsToFirebase();
+            });
+        }
+        else
+        {
+            _notes.ToggleLock(noteId);
+            RefreshCurrentView();
+        }
+    }
+
     private void OpenNote(string noteId)
+    {
+        var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
+        if (existing != null)
+        {
+            existing.Activate();
+            return;
+        }
+
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+        if (note == null) return;
+
+        if (note.IsLocked)
+        {
+            var storedHash = AppSettings.LoadMasterPasswordHash();
+            if (string.IsNullOrEmpty(storedHash)) return;
+            ActionPanel.ShowEnterPasswordFlyout(NotesList, storedHash, () =>
+            {
+                OpenNoteUnlocked(noteId);
+            });
+            return;
+        }
+
+        OpenNoteUnlocked(noteId);
+    }
+
+    private void OpenNoteUnlocked(string noteId)
     {
         var existing = _openNoteWindows.FirstOrDefault(w => w.NoteId == noteId);
         if (existing != null)
@@ -466,12 +855,177 @@ public sealed partial class MainWindow : Window
             OpenNotepad();
             _notepadWindow?.LoadNoteContent(note.Title, note.Content, note.Id);
         };
+        window.AttachmentChanged += () => HandleNoteAttachmentChanged(window);
         window.Closed += (_, _) =>
         {
+            try
+            {
+                var p = window.AppWindow.Position;
+                var s = window.AppWindow.Size;
+                var n = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+                if (n != null)
+                {
+                    n.PosX = p.X;
+                    n.PosY = p.Y;
+                    n.Width = window.IsCompact ? window.PreCompactWidth : s.Width;
+                    n.Height = window.IsCompact ? window.PreCompactHeight : s.Height;
+                    n.IsCompact = window.IsCompact;
+                    _notes.Save();
+                }
+            }
+            catch { }
             _openNoteWindows.Remove(window);
             RefreshCurrentView();
         };
+
+        if (note.PosX.HasValue && note.PosY.HasValue)
+            WindowHelper.MoveToVisibleArea(window, note.PosX.Value, note.PosY.Value);
+        if (note.IsCompact && note.Width.HasValue && note.Height.HasValue)
+        {
+            // Restore full size first so pre-compact values are correct, then compact
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(note.Width.Value, note.Height.Value));
+            window.SetCompactState(true, animate: false);
+        }
+        else if (note.Width.HasValue && note.Height.HasValue)
+        {
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(note.Width.Value, note.Height.Value));
+        }
+
         window.Activate();
+    }
+
+    private void HandleNoteAttachmentChanged(NoteWindow window)
+    {
+        var note = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
+        if (note == null) return;
+
+        if (string.IsNullOrEmpty(note.AttachMode))
+        {
+            // Detached — un-pin if was pinned by attachment
+            window.SetPinnedOnTop(false);
+            return;
+        }
+
+        if (note.AttachMode == "folder")
+        {
+            // Check if the folder is currently open in Explorer
+            var openPaths = WindowAttachmentService.GetOpenExplorerPaths();
+            string normalizedTarget;
+            try { normalizedTarget = Path.GetFullPath(note.AttachTarget!); }
+            catch { return; }
+
+            var match = openPaths.FirstOrDefault(p =>
+                WindowAttachmentService.IsSamePath(p.Path, normalizedTarget));
+
+            if (match.Path != null)
+            {
+                // Folder is open — pin on top and move to bottom-right of Explorer
+                window.SetPinnedOnTop(true);
+                var noteSize = window.AppWindow.Size;
+                var pos = WindowAttachmentService.GetAttachedPosition(note, match.Hwnd, noteSize.Width, noteSize.Height);
+                if (pos != null)
+                    WindowHelper.MoveToVisibleArea(window, pos.Value.X, pos.Value.Y);
+            }
+            else
+            {
+                // Folder not open — close the note
+                try { window.Close(); } catch { }
+            }
+        }
+        else if (note.AttachMode == "process")
+        {
+            // Check if the process is currently foreground
+            window.SetPinnedOnTop(true);
+            _attachmentService?.Refresh();
+        }
+        else if (note.AttachMode == "title")
+        {
+            // Check if the foreground window title matches
+            window.SetPinnedOnTop(true);
+            _attachmentService?.Refresh();
+        }
+    }
+
+    // ── Window attachment ───────────────────────────────────────
+
+    private void SaveAttachedOffset(NoteEntry note, NoteWindow window, string noteId)
+    {
+        if (string.IsNullOrEmpty(note.AttachMode))
+            return;
+
+        if (!_attachedTargetHwnds.TryGetValue(noteId, out var targetHwnd))
+            return;
+
+        if (targetHwnd == IntPtr.Zero)
+            return;
+
+        var pos = window.AppWindow.Position;
+        WindowAttachmentService.SaveAttachOffset(note, targetHwnd, pos.X, pos.Y);
+        _notes.Save();
+    }
+
+    private void OnAttachedNoteShow(NoteEntry note, IntPtr targetHwnd)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Skip if already open manually or as attached
+            if (_openNoteWindows.Any(w => w.NoteId == note.Id)) return;
+            if (_attachedNoteWindows.ContainsKey(note.Id))
+            {
+                _attachedTargetHwnds[note.Id] = targetHwnd;
+                return;
+            }
+            if (note.IsLocked) return;
+
+            var window = new NoteWindow(_notes, note);
+            window.SetSnippetManager(_snippetManager);
+            window.RefreshAiUi();
+
+            // Always on top so the note stays above the Explorer/target window
+            window.SetPinnedOnTop(true);
+
+            // Position relative to target window (bottom-right by default)
+            var noteSize = window.AppWindow.Size;
+            var pos = WindowAttachmentService.GetAttachedPosition(note, targetHwnd, noteSize.Width, noteSize.Height);
+            if (pos != null)
+                WindowHelper.MoveToVisibleArea(window, pos.Value.X, pos.Value.Y);
+
+            window.NoteChanged += () => DispatcherQueue.TryEnqueue(() =>
+            {
+                RefreshCurrentView();
+                _attachmentService?.Refresh();
+            });
+            window.Closed += (_, _) =>
+            {
+                // Save relative offset before removing
+                SaveAttachedOffset(note, window, note.Id);
+                _attachedNoteWindows.Remove(note.Id);
+                _attachedTargetHwnds.Remove(note.Id);
+            };
+
+            _attachedNoteWindows[note.Id] = window;
+            _attachedTargetHwnds[note.Id] = targetHwnd;
+            window.Activate();
+        });
+    }
+
+    private void OnAttachedNoteHide(string noteId)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_attachedNoteWindows.TryGetValue(noteId, out var window)) return;
+
+            // Save relative offset
+            var note = _notes.Notes.FirstOrDefault(n => n.Id == noteId);
+            if (note != null)
+            {
+                SaveAttachedOffset(note, window, noteId);
+            }
+
+            _attachedTargetHwnds.Remove(noteId);
+            _attachedNoteWindows.Remove(noteId);
+            try { window.Close(); } catch { }
+        });
     }
 
     // ── Events ─────────────────────────────────────────────────
@@ -495,7 +1049,24 @@ public sealed partial class MainWindow : Window
         _notepadWindow.SetSnippetManager(_snippetManager);
         _notepadWindow.RefreshAiUi();
         _notepadWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
-        _notepadWindow.Closed += (_, _) => _notepadWindow = null;
+        _notepadWindow.Closed += (_, _) =>
+        {
+            if (_notepadWindow != null)
+            {
+                var p = _notepadWindow.AppWindow.Position;
+                var s = _notepadWindow.AppWindow.Size;
+                AppSettings.SaveNotepadPosition(p.X, p.Y, s.Width, s.Height);
+            }
+            _notepadWindow = null;
+        };
+
+        var savedPos = AppSettings.LoadNotepadPosition();
+        if (savedPos.HasValue)
+        {
+            _notepadWindow.AppWindow.Resize(new Windows.Graphics.SizeInt32(savedPos.Value.W, savedPos.Value.H));
+            WindowHelper.MoveToVisibleArea(_notepadWindow, savedPos.Value.X, savedPos.Value.Y);
+        }
+
         _notepadWindow.Activate();
     }
 
@@ -556,11 +1127,14 @@ public sealed partial class MainWindow : Window
             onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
             onDisconnectFirebase: () =>
             {
+                StopFirebaseListener();
                 _notes.DisconnectFirebase();
+                UpdateSyncButtonVisibility();
             },
             onSyncFirebase: async () =>
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
                 RefreshCurrentView();
             },
             onConfigureWebDav: async () => await ShowWebDavConfigDialog(),
@@ -598,6 +1172,7 @@ public sealed partial class MainWindow : Window
                 AppSettings.SaveNoteStyle(style);
                 foreach (var w in _openNoteWindows)
                     w.ApplyNoteStyle(style);
+                RefreshCurrentView();
                 _ = _notes.SyncSettingsToFirebase();
             },
             currentFont: AppSettings.LoadFontSetting(),
@@ -612,9 +1187,21 @@ public sealed partial class MainWindow : Window
                     if (w.Content is FrameworkElement noteRoot)
                         AppSettings.ApplyFontToTree(noteRoot, fontFamily);
                 _ = _notes.SyncSettingsToFirebase();
+            },
+            onResetPassword: () =>
+            {
+                AppSettings.DeleteMasterPassword();
+            },
+            onResetNotes: () =>
+            {
+                foreach (var w in _openNoteWindows.ToList())
+                    try { w.Close(); } catch { }
+                _openNoteWindows.Clear();
+                _notes.DeleteAllNotes();
+                RefreshCurrentView();
             });
 
-        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight;
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
     }
 
@@ -982,7 +1569,10 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
+                UpdateSyncButtonVisibility();
                 RefreshCurrentView();
+                StartFirebaseListener();
                 googleSignInDone = true;
             }
             else
@@ -1016,7 +1606,10 @@ public sealed partial class MainWindow : Window
             if (success)
             {
                 await _notes.SyncFromFirebase();
+                RefreshOpenNoteWindows();
+                UpdateSyncButtonVisibility();
                 RefreshCurrentView();
+                StartFirebaseListener();
                 break;
             }
 
@@ -1079,36 +1672,48 @@ public sealed partial class MainWindow : Window
         if (_isCompact == compact)
             return;
 
+        if (!_isCompact)
+        {
+            _preCompactWidth = AppWindow.Size.Width;
+            _preCompactHeight = AppWindow.Size.Height;
+        }
+
         _isCompact = compact;
-        _targetHeight = _isCompact ? CompactHeight : FullHeight;
+        _targetHeight = _isCompact ? CompactHeight : _preCompactHeight;
         CompactIcon.Glyph = _isCompact ? "\uE70D" : "\uE70E";
 
         if (_isCompact)
         {
             if (animate)
             {
-                AnimationHelper.FadeOut(TitleLabel, 100);
+                AnimationHelper.FadeOut(TitlePanel, 100);
+                AnimationHelper.FadeOut(SearchGrid, 100);
                 AnimationHelper.FadeOut(NotesScroll, 120);
+                AnimationHelper.FadeOut(StatusBar, 100);
             }
             else
             {
-                TitleLabel.Opacity = 0;
+                TitlePanel.Opacity = 0;
+                SearchGrid.Opacity = 0;
                 NotesScroll.Opacity = 0;
+                StatusBar.Opacity = 0;
             }
         }
         else
         {
             if (animate)
             {
-                AnimationHelper.FadeIn(TitleLabel, 200, 80);
+                AnimationHelper.FadeIn(TitlePanel, 200, 80);
                 AnimationHelper.FadeIn(SearchGrid, 200, 120);
                 AnimationHelper.FadeIn(NotesScroll, 250, 160);
+                AnimationHelper.FadeIn(StatusBar, 200, 160);
             }
             else
             {
-                TitleLabel.Opacity = 1;
+                TitlePanel.Opacity = 1;
                 SearchGrid.Opacity = 1;
                 NotesScroll.Opacity = 1;
+                StatusBar.Opacity = 1;
             }
         }
 
@@ -1117,7 +1722,8 @@ public sealed partial class MainWindow : Window
         if (!animate)
         {
             _currentAnimHeight = _targetHeight;
-            AppWindow.Resize(new Windows.Graphics.SizeInt32(380, _targetHeight));
+            var finalWidth = _isCompact ? AppWindow.Size.Width : _preCompactWidth;
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(finalWidth, _targetHeight));
             return;
         }
 
@@ -1133,17 +1739,18 @@ public sealed partial class MainWindow : Window
     private void AnimTimer_Tick(object? sender, object e)
     {
         var diff = _targetHeight - _currentAnimHeight;
-        if (Math.Abs(diff) < 3)
+        var step = diff / 4;
+        if (step == 0 || Math.Abs(diff) < 3)
         {
             _currentAnimHeight = _targetHeight;
+            var finalWidth = _isCompact ? AppWindow.Size.Width : _preCompactWidth;
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(finalWidth, _currentAnimHeight));
             _animTimer?.Stop();
             _animTimer = null;
+            return;
         }
-        else
-        {
-            _currentAnimHeight += diff / 4;
-        }
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(380, _currentAnimHeight));
+        _currentAnimHeight += step;
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(AppWindow.Size.Width, _currentAnimHeight));
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)
@@ -1169,7 +1776,7 @@ public sealed partial class MainWindow : Window
         };
 
         var flyout = ActionPanel.Create(Lang.T("quick_access"), actions);
-        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft;
         flyout.ShowAt(QuickAccessButton);
     }
 

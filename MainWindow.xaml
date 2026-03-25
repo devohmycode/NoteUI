@@ -33,6 +33,12 @@
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Spacing="0">
+                <Button x:Name="SyncButton" Background="Transparent" BorderThickness="0"
+                        Padding="10,6" Click="SyncButton_Click" Visibility="Collapsed"
+                        PointerEntered="AnimatedButton_PointerEntered"
+                        PointerExited="AnimatedButton_PointerExited">
+                    <FontIcon x:Name="SyncIcon" Glyph="&#xE895;" FontSize="12"/>
+                </Button>
                 <Button x:Name="CompactButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Compact_Click"
                         PointerEntered="AnimatedButton_PointerEntered"
@@ -44,19 +50,6 @@
                         PointerEntered="AnimatedButton_PointerEntered"
                         PointerExited="AnimatedButton_PointerExited">
                     <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="12"/>
-                </Button>
-                <Button x:Name="SettingsButton" Background="Transparent" BorderThickness="0"
-                        Padding="10,6" Click="Settings_Click"
-                        PointerEntered="SettingsButton_PointerEntered"
-                        PointerExited="SettingsButton_PointerExited">
-                    <AnimatedIcon x:Name="SettingsAnimatedIcon" Width="16" Height="16">
-                        <AnimatedIcon.Source>
-                            <animatedvisuals:AnimatedSettingsVisualSource/>
-                        </AnimatedIcon.Source>
-                        <AnimatedIcon.FallbackIconSource>
-                            <FontIconSource Glyph="&#xE713;"/>
-                        </AnimatedIcon.FallbackIconSource>
-                    </AnimatedIcon>
                 </Button>
                 <Button x:Name="CloseButton" Background="Transparent" BorderThickness="0"
                         Padding="10,6" Click="Close_Click"
@@ -108,9 +101,9 @@
         </ScrollViewer>
 
         <!-- Row 4: Status bar -->
-        <Grid Grid.Row="4" Padding="8,2,8,6">
+        <Grid x:Name="StatusBar" Grid.Row="4" Padding="8,2,8,6">
             <Button x:Name="QuickAccessButton"
-                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    HorizontalAlignment="Left" VerticalAlignment="Center"
                     Background="Transparent" BorderThickness="0"
                     Padding="8,5" CornerRadius="6"
                     Click="QuickAccessButton_Click"
@@ -118,6 +111,20 @@
                     PointerExited="AnimatedButton_PointerExited">
                 <FontIcon Glyph="&#xE700;" FontSize="14"
                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Button>
+            <Button x:Name="SettingsButton" Background="Transparent" BorderThickness="0"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Padding="8,5" CornerRadius="6" Click="Settings_Click"
+                    PointerEntered="SettingsButton_PointerEntered"
+                    PointerExited="SettingsButton_PointerExited">
+                <AnimatedIcon x:Name="SettingsAnimatedIcon" Width="14" Height="14">
+                    <AnimatedIcon.Source>
+                        <animatedvisuals:AnimatedSettingsVisualSource/>
+                    </AnimatedIcon.Source>
+                    <AnimatedIcon.FallbackIconSource>
+                        <FontIconSource Glyph="&#xE713;"/>
+                    </AnimatedIcon.FallbackIconSource>
+                </AnimatedIcon>
             </Button>
         </Grid>
     </Grid>

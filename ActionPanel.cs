@@ -198,7 +198,8 @@ public static class ActionPanel
         Action<string>? onLanguageSelected = null, Action<bool>? onSlashToggled = null,
         Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null,
         string? currentNoteStyle = null, Action<string>? onNoteStyleSelected = null,
-        string? currentFont = null, Action<string>? onFontSelected = null)
+        string? currentFont = null, Action<string>? onFontSelected = null,
+        Action? onResetPassword = null, Action? onResetNotes = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -330,6 +331,22 @@ public static class ActionPanel
                 CreateRadioSubMenu("Language", langs, currentLanguage ?? "en", c => { onLanguageSelected(c); flyout.Hide(); }));
             allButtons.Add(langBtn);
             panel.Children.Add(langBtn);
+        }
+
+        // Reset
+        if (onResetPassword != null || onResetNotes != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            var resetBtn = CreateNavigateButton(Lang.T("reset"), () =>
+                ShowResetSubPanel(flyout, onResetPassword, onResetNotes));
+            resetBtn.Tag = Lang.T("reset") + " Réinitialiser Reset";
+            // Red text
+            if (resetBtn.Content is Grid rg)
+                foreach (var child in rg.Children)
+                    if (child is TextBlock rtb)
+                        rtb.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99));
+            allButtons.Add(resetBtn);
+            panel.Children.Add(resetBtn);
         }
 
         // Search
@@ -672,6 +689,238 @@ public static class ActionPanel
         btn.Content = grid;
         btn.Click += (_, _) => handler();
         return btn;
+    }
+
+    // ── Reset sub-panel ──
+
+    private static void ShowResetSubPanel(Flyout flyout, Action? onResetPassword, Action? onResetNotes)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("reset"), () =>
+        {
+            // Back: re-show would require recreating settings; just hide
+            flyout.Hide();
+        });
+
+        if (onResetPassword != null)
+        {
+            var pwBtn = CreateNavigateButton(Lang.T("reset_password"), () =>
+                ShowResetConfirmPanel(flyout, Lang.T("reset_password"), Lang.T("reset_password_warn"), () =>
+                {
+                    flyout.Hide();
+                    onResetPassword();
+                }, onResetPassword, onResetNotes, requirePassword: true));
+            panel.Children.Add(pwBtn);
+        }
+
+        if (onResetNotes != null)
+        {
+            var notesBtn = CreateNavigateButton(Lang.T("reset_notes"), () =>
+                ShowResetConfirmPanel(flyout, Lang.T("reset_notes"), Lang.T("reset_notes_warn"), () =>
+                {
+                    flyout.Hide();
+                    onResetNotes();
+                }, onResetPassword, onResetNotes));
+            panel.Children.Add(notesBtn);
+        }
+
+        flyout.Content = panel;
+    }
+
+    private static void ShowResetConfirmPanel(Flyout flyout, string title, string warning, Action onConfirm,
+        Action? onResetPassword = null, Action? onResetNotes = null, bool requirePassword = false)
+    {
+        var panel = CreateSubPanelWithHeader(title, () =>
+            ShowResetSubPanel(flyout, onResetPassword, onResetNotes));
+
+        var warningText = new TextBlock
+        {
+            Text = warning,
+            FontSize = 12,
+            MaxWidth = 250,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Margin = new Thickness(8, 6, 8, 6),
+            Opacity = 0.9,
+        };
+        panel.Children.Add(warningText);
+
+        PasswordBox? passwordBox = null;
+        TextBlock? errorText = null;
+
+        if (requirePassword)
+        {
+            passwordBox = new PasswordBox
+            {
+                PlaceholderText = Lang.T("master_password"),
+                FontSize = 12,
+                Margin = new Thickness(6, 4, 6, 0),
+            };
+            panel.Children.Add(passwordBox);
+
+            errorText = new TextBlock
+            {
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+                Margin = new Thickness(8, 0, 8, 0),
+                Visibility = Visibility.Collapsed,
+            };
+            panel.Children.Add(errorText);
+        }
+
+        panel.Children.Add(CreateSeparator());
+
+        var confirmBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 5, 8, 5),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0,
+            Content = new TextBlock
+            {
+                Text = Lang.T("reset_confirm"),
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            }
+        };
+        confirmBtn.Click += (_, _) =>
+        {
+            if (requirePassword && passwordBox != null && errorText != null)
+            {
+                if (string.IsNullOrEmpty(passwordBox.Password))
+                {
+                    errorText.Text = Lang.T("password_required");
+                    errorText.Visibility = Visibility.Visible;
+                    return;
+                }
+                var storedHash = AppSettings.LoadMasterPasswordHash();
+                if (storedHash != null && AppSettings.HashPassword(passwordBox.Password) != storedHash)
+                {
+                    errorText.Text = Lang.T("wrong_password");
+                    errorText.Visibility = Visibility.Visible;
+                    return;
+                }
+            }
+            onConfirm();
+        };
+        panel.Children.Add(confirmBtn);
+
+        flyout.Content = panel;
+    }
+
+    // ── Lock / Password flyouts ──
+
+    public static void ShowCreatePasswordFlyout(FrameworkElement target, Action<string> onPasswordCreated)
+    {
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle();
+
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(CreateHeader(Lang.T("create_password")));
+        panel.Children.Add(CreateSeparator());
+
+        var passwordBox = new PasswordBox
+        {
+            PlaceholderText = Lang.T("master_password"),
+            FontSize = 12,
+            Margin = new Thickness(6, 4, 6, 0),
+        };
+        panel.Children.Add(passwordBox);
+
+        var confirmBox = new PasswordBox
+        {
+            PlaceholderText = Lang.T("confirm_password"),
+            FontSize = 12,
+            Margin = new Thickness(6, 0, 6, 0),
+        };
+        panel.Children.Add(confirmBox);
+
+        var errorText = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Margin = new Thickness(8, 0, 8, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        panel.Children.Add(errorText);
+
+        panel.Children.Add(CreateSeparator());
+
+        var confirmBtn = CreateCheckItem("OK", false, () =>
+        {
+            if (string.IsNullOrEmpty(passwordBox.Password))
+            {
+                errorText.Text = Lang.T("password_required");
+                errorText.Visibility = Visibility.Visible;
+                return;
+            }
+            if (passwordBox.Password != confirmBox.Password)
+            {
+                errorText.Text = Lang.T("passwords_dont_match");
+                errorText.Visibility = Visibility.Visible;
+                return;
+            }
+            flyout.Hide();
+            onPasswordCreated(passwordBox.Password);
+        });
+        panel.Children.Add(confirmBtn);
+
+        flyout.Content = panel;
+        flyout.ShowAt(target);
+    }
+
+    public static void ShowEnterPasswordFlyout(FrameworkElement target, string storedHash, Action onSuccess)
+    {
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle();
+
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(CreateHeader(Lang.T("enter_password")));
+        panel.Children.Add(CreateSeparator());
+
+        var passwordBox = new PasswordBox
+        {
+            PlaceholderText = Lang.T("master_password"),
+            FontSize = 12,
+            Margin = new Thickness(6, 4, 6, 0),
+        };
+        panel.Children.Add(passwordBox);
+
+        var errorText = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Margin = new Thickness(8, 0, 8, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        panel.Children.Add(errorText);
+
+        panel.Children.Add(CreateSeparator());
+
+        var confirmBtn = CreateCheckItem("OK", false, () =>
+        {
+            if (string.IsNullOrEmpty(passwordBox.Password))
+            {
+                errorText.Text = Lang.T("password_required");
+                errorText.Visibility = Visibility.Visible;
+                return;
+            }
+            var inputHash = AppSettings.HashPassword(passwordBox.Password);
+            if (inputHash != storedHash)
+            {
+                errorText.Text = Lang.T("wrong_password");
+                errorText.Visibility = Visibility.Visible;
+                return;
+            }
+            flyout.Hide();
+            onSuccess();
+        });
+        panel.Children.Add(confirmBtn);
+
+        flyout.Content = panel;
+        flyout.ShowAt(target);
     }
 
     public static void ShowVoiceModelsPanel(Flyout flyout, string? currentModelId,

@@ -22,12 +22,6 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Grid x:Name="DragBar" Background="Transparent"
-                  Grid.ColumnSpan="2"
-                  PointerPressed="DragBar_PointerPressed"
-                  PointerMoved="DragBar_PointerMoved"
-                  PointerReleased="DragBar_PointerReleased"/>
-
             <!-- Tab strip in title bar -->
             <ScrollViewer Grid.Column="0" Margin="4,0,0,0"
                           HorizontalScrollBarVisibility="Auto"
@@ -51,6 +45,14 @@
                     <FontIcon Glyph="&#xE711;" FontSize="12"/>
                 </Button>
             </StackPanel>
+
+            <!-- Drag bar: rendered last = top z-order, thin strip at top of title bar -->
+            <Grid x:Name="DragBar" Background="Transparent"
+                  Grid.ColumnSpan="2"
+                  Height="12" VerticalAlignment="Top"
+                  PointerPressed="DragBar_PointerPressed"
+                  PointerMoved="DragBar_PointerMoved"
+                  PointerReleased="DragBar_PointerReleased"/>
         </Grid>
 
         <!-- Row 1: Menu bar -->

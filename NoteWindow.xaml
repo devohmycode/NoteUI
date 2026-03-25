@@ -44,8 +44,19 @@
                      LostFocus="TitleEditBox_LostFocus"
                      KeyDown="TitleEditBox_KeyDown"/>
 
+            <FontIcon x:Name="AttachIcon" Glyph="&#xE723;" FontSize="10"
+                     Foreground="Black" Opacity="0.5" Visibility="Collapsed"
+                     HorizontalAlignment="Left" VerticalAlignment="Center"
+                     Margin="40,0,0,0"/>
+
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Spacing="0">
+                <Button x:Name="LockButton" Background="Transparent" BorderThickness="0"
+                        Padding="8,6" Click="Lock_Click"
+                        PointerEntered="AnimatedButton_PointerEntered"
+                        PointerExited="AnimatedButton_PointerExited">
+                    <FontIcon x:Name="LockIcon" Glyph="&#xE72E;" FontSize="12" Foreground="Black"/>
+                </Button>
                 <Button x:Name="CompactButton" Background="Transparent" BorderThickness="0"
                         Padding="8,6" Click="Compact_Click"
                         PointerEntered="AnimatedButton_PointerEntered"

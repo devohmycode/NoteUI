@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
@@ -32,6 +34,48 @@ public static class AppSettings
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoteUI");
 
     public static string GetDefaultNotesFolder() => DefaultNotesFolder;
+
+    // ── Master Password (DPAPI) ─────────────────────────────────
+
+    private static readonly string MasterPasswordPath = Path.Combine(SettingsDir, "master_pw.dat");
+
+    public static bool HasMasterPassword() => File.Exists(MasterPasswordPath);
+
+    public static void SaveMasterPasswordHash(string sha256Hash)
+    {
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            var bytes = Encoding.UTF8.GetBytes(sha256Hash);
+            var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+            File.WriteAllBytes(MasterPasswordPath, encrypted);
+        }
+        catch { }
+    }
+
+    public static string? LoadMasterPasswordHash()
+    {
+        try
+        {
+            if (!File.Exists(MasterPasswordPath)) return null;
+            var encrypted = File.ReadAllBytes(MasterPasswordPath);
+            var decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(decrypted);
+        }
+        catch { return null; }
+    }
+
+    public static void DeleteMasterPassword()
+    {
+        try { if (File.Exists(MasterPasswordPath)) File.Delete(MasterPasswordPath); } catch { }
+    }
+
+    public static string HashPassword(string password)
+    {
+        var bytes = Encoding.UTF8.GetBytes(password);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
 
     // ── Language ────────────────────────────────────────────────
 
@@ -213,6 +257,49 @@ public static class AppSettings
         });
     }
 
+    /// <summary>Note ids ever present under RTDB <c>users/{uid}/notes</c> (aligns with web localStorage key semantics).</summary>
+    public static HashSet<string> LoadFirebaseEverSeenNoteIds(string userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+            return new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var path = FirebaseEverSeenNoteIdsPath(userId);
+            if (!File.Exists(path))
+                return new HashSet<string>(StringComparer.Ordinal);
+            var list = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(path));
+            return list is { Count: > 0 }
+                ? new HashSet<string>(list, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+        }
+        catch
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    public static void SaveFirebaseEverSeenNoteIds(string userId, IEnumerable<string> ids)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            var dir = Path.Combine(SettingsDir, "firebase-ever-seen");
+            Directory.CreateDirectory(dir);
+            var path = FirebaseEverSeenNoteIdsPath(userId);
+            var arr = ids.Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+            File.WriteAllText(path, JsonSerializer.Serialize(arr));
+        }
+        catch { }
+    }
+
+    private static string FirebaseEverSeenNoteIdsPath(string userId)
+    {
+        var safe = string.Concat(userId.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+        if (string.IsNullOrEmpty(safe)) safe = "unknown";
+        return Path.Combine(SettingsDir, "firebase-ever-seen", $"{safe}.json");
+    }
+
     // ── WebDAV ─────────────────────────────────────────────────
 
     public static (string Url, string Username, string Password) LoadWebDavSettings()
@@ -382,7 +469,7 @@ public static class AppSettings
         return "system";
     }
 
-    public static (int X, int Y)? LoadMainWindowPosition()
+    public static (int X, int Y, int W, int H)? LoadMainWindowPosition()
     {
         try
         {
@@ -397,7 +484,10 @@ public static class AppSettings
                 xProp.TryGetInt32(out var x) &&
                 yProp.TryGetInt32(out var y))
             {
-                return (x, y);
+                int w = 380, h = 650;
+                if (root.TryGetProperty("mainWindowW", out var wProp) && wProp.TryGetInt32(out var ww)) w = ww;
+                if (root.TryGetProperty("mainWindowH", out var hProp) && hProp.TryGetInt32(out var hh)) h = hh;
+                return (x, y, w, h);
             }
         }
         catch { }
@@ -441,12 +531,47 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["theme"] = theme });
     }
 
-    public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position)
+    public static void SaveNotepadPosition(int x, int y, int w, int h)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["notepadX"] = x,
+            ["notepadY"] = y,
+            ["notepadW"] = w,
+            ["notepadH"] = h
+        });
+    }
+
+    public static (int X, int Y, int W, int H)? LoadNotepadPosition()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            var json = File.ReadAllText(SettingsPath);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("notepadX", out var xProp) &&
+                doc.RootElement.TryGetProperty("notepadY", out var yProp) &&
+                xProp.TryGetInt32(out var x) &&
+                yProp.TryGetInt32(out var y))
+            {
+                int w = 920, h = 640;
+                if (doc.RootElement.TryGetProperty("notepadW", out var wProp) && wProp.TryGetInt32(out var ww)) w = ww;
+                if (doc.RootElement.TryGetProperty("notepadH", out var hProp) && hProp.TryGetInt32(out var hh)) h = hh;
+                return (x, y, w, h);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position, Windows.Graphics.SizeInt32 size)
     {
         MergeAndSaveSettings(new Dictionary<string, object>
         {
             ["mainWindowX"] = position.X,
-            ["mainWindowY"] = position.Y
+            ["mainWindowY"] = position.Y,
+            ["mainWindowW"] = size.Width,
+            ["mainWindowH"] = size.Height
         });
     }
 

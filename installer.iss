@@ -1,7 +1,7 @@
 [Setup]
 AppId={{B8A3D1E7-4F2C-4B9A-8E6D-1A5C3F7E9D2B}
 AppName=NoteUI
-AppVersion=0.1.1
+AppVersion=0.2.0
 AppPublisher=NoteUI
 DefaultDirName={localappdata}\Programs\NoteUI
 DefaultGroupName=NoteUI

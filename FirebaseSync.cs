@@ -8,8 +8,19 @@ using System.Text.Json;
 
 namespace NoteUI;
 
+/// <summary>RTDB tombstone under <c>users/{uid}/noteDeletions</c> (shared with web/Android).</summary>
+public sealed class NoteDeletionEntry
+{
+    public string DeletedAt { get; set; } = "";
+}
+
 public class FirebaseSync : IDisposable
 {
+    private static readonly JsonSerializerOptions NotePullJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
     private readonly HttpClient _http = new();
     private string _databaseUrl = "";
     private string _apiKey = "";
@@ -18,9 +29,14 @@ public class FirebaseSync : IDisposable
     private string? _refreshToken;
     private Timer? _refreshTimer;
 
+    private CancellationTokenSource? _listenerCts;
+    private int _sseSkips;
+
     public bool IsConfigured => !string.IsNullOrEmpty(_databaseUrl) && !string.IsNullOrEmpty(_apiKey);
     public bool IsConnected => _idToken != null;
     public string? Email { get; private set; }
+    /// <summary>Firebase Auth local id (<c>users/{LocalUserId}/notes</c>).</summary>
+    public string? LocalUserId => _localId;
 
     public void Configure(string databaseUrl, string apiKey)
     {
@@ -322,7 +338,172 @@ public class FirebaseSync : IDisposable
 
     // ── Sync ─────────────────────────────────────────────────────
 
-    public async Task<List<NoteEntry>?> PullNotesAsync()
+    /// <summary>Matches web <c>mergePullWithLocal</c>: drops locals missing from RTDB if tombstoned or ever seen remotely.</summary>
+    public static List<NoteEntry> MergePullWithLocal(
+        IReadOnlyList<NoteEntry> localNotes,
+        IReadOnlyList<NoteEntry> remoteNotes,
+        HashSet<string> idsEverSeenOnRemote,
+        HashSet<string>? tombstoneIds = null)
+    {
+        var tombstones = tombstoneIds ?? new HashSet<string>(StringComparer.Ordinal);
+        var remoteMap = remoteNotes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        var seenRemote = new HashSet<string>(StringComparer.Ordinal);
+        var next = new List<NoteEntry>();
+
+        foreach (var local in localNotes)
+        {
+            if (remoteMap.TryGetValue(local.Id, out var r))
+            {
+                seenRemote.Add(local.Id);
+                next.Add(MergeRemoteIntoLocal(local, r));
+            }
+            else
+            {
+                if (tombstones.Contains(local.Id) || idsEverSeenOnRemote.Contains(local.Id))
+                    continue;
+                next.Add(local);
+            }
+        }
+
+        foreach (var r in remoteNotes)
+        {
+            if (seenRemote.Contains(r.Id))
+                continue;
+            next.Add(CloneNoteEntry(r));
+        }
+
+        foreach (var id in remoteMap.Keys)
+            idsEverSeenOnRemote.Add(id);
+
+        return next;
+    }
+
+    private static NoteEntry MergeRemoteIntoLocal(NoteEntry local, NoteEntry remote)
+    {
+        if (remote.UpdatedAt.ToUniversalTime() <= local.UpdatedAt.ToUniversalTime())
+            return local;
+        return new NoteEntry
+        {
+            Id = local.Id,
+            Title = remote.Title,
+            Content = remote.Content,
+            Color = remote.Color,
+            IsPinned = remote.IsPinned,
+            IsFavorite = remote.IsFavorite,
+            IsArchived = remote.IsArchived,
+            IsLocked = remote.IsLocked,
+            Tags = [.. remote.Tags],
+            ReminderAt = remote.ReminderAt,
+            NoteType = remote.NoteType,
+            Tasks = remote.Tasks.Select(t => new TaskItem
+            {
+                Id = t.Id,
+                Text = t.Text,
+                IsDone = t.IsDone,
+                ReminderAt = t.ReminderAt
+            }).ToList(),
+            CreatedAt = remote.CreatedAt,
+            UpdatedAt = remote.UpdatedAt,
+            PosX = remote.PosX,
+            PosY = remote.PosY,
+            Width = remote.Width,
+            Height = remote.Height,
+            IsCompact = remote.IsCompact,
+            AttachTarget = remote.AttachTarget,
+            AttachMode = remote.AttachMode,
+            AttachOffsetX = remote.AttachOffsetX,
+            AttachOffsetY = remote.AttachOffsetY,
+        };
+    }
+
+    private static NoteEntry CloneNoteEntry(NoteEntry n) => new()
+    {
+        Id = n.Id,
+        Title = n.Title,
+        Content = n.Content,
+        Color = n.Color,
+        IsPinned = n.IsPinned,
+        IsFavorite = n.IsFavorite,
+        IsArchived = n.IsArchived,
+        IsLocked = n.IsLocked,
+        Tags = [.. n.Tags],
+        ReminderAt = n.ReminderAt,
+        NoteType = n.NoteType,
+        Tasks = n.Tasks.Select(t => new TaskItem
+        {
+            Id = t.Id,
+            Text = t.Text,
+            IsDone = t.IsDone,
+            ReminderAt = t.ReminderAt
+        }).ToList(),
+        CreatedAt = n.CreatedAt,
+        UpdatedAt = n.UpdatedAt,
+        PosX = n.PosX,
+        PosY = n.PosY,
+        Width = n.Width,
+        Height = n.Height,
+        IsCompact = n.IsCompact,
+        AttachTarget = n.AttachTarget,
+        AttachMode = n.AttachMode,
+        AttachOffsetX = n.AttachOffsetX,
+        AttachOffsetY = n.AttachOffsetY,
+    };
+
+    /// <summary>
+    /// Matches web <c>mergeLocalNotesWithRemoteForPush</c>: omits remote keys when the id was ever on RTDB but is absent locally (local delete).
+    /// Remote-only ids not in <paramref name="idsEverSeenOnRemote"/> are kept (note created on another client).
+    /// </summary>
+    private static Dictionary<string, NoteEntry> MergeNotesForPush(
+        IReadOnlyList<NoteEntry> local,
+        IReadOnlyDictionary<string, NoteEntry> remote,
+        HashSet<string> idsEverSeenOnRemote)
+    {
+        var localById = local.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        var merged = new Dictionary<string, NoteEntry>(StringComparer.Ordinal);
+
+        foreach (var (id, l) in localById)
+        {
+            if (!remote.TryGetValue(id, out var r))
+            {
+                merged[id] = l;
+                continue;
+            }
+            merged[id] = l.UpdatedAt.ToUniversalTime() >= r.UpdatedAt.ToUniversalTime() ? l : r;
+        }
+
+        foreach (var (id, r) in remote)
+        {
+            if (localById.ContainsKey(id))
+                continue;
+            if (idsEverSeenOnRemote.Contains(id))
+                continue;
+            merged[id] = r;
+        }
+
+        return merged;
+    }
+
+    /// <summary>Builds the next <c>noteDeletions</c> map (matches web <c>mergeNoteDeletionsForPush</c>).</summary>
+    public static Dictionary<string, NoteDeletionEntry> MergeNoteDeletionsForPush(
+        Dictionary<string, NoteEntry> mergedNotes,
+        IReadOnlyDictionary<string, NoteEntry> previousRemoteNotes,
+        IReadOnlyDictionary<string, NoteDeletionEntry>? previousDeletions)
+    {
+        var prev = previousDeletions != null
+            ? previousDeletions.ToDictionary(kvp => kvp.Key, kvp => new NoteDeletionEntry { DeletedAt = kvp.Value.DeletedAt }, StringComparer.Ordinal)
+            : new Dictionary<string, NoteDeletionEntry>(StringComparer.Ordinal);
+        var now = DateTime.UtcNow.ToString("o");
+        foreach (var id in previousRemoteNotes.Keys)
+        {
+            if (!mergedNotes.ContainsKey(id))
+                prev[id] = new NoteDeletionEntry { DeletedAt = now };
+        }
+        foreach (var id in mergedNotes.Keys)
+            prev.Remove(id);
+        return prev;
+    }
+
+    public async Task<Dictionary<string, NoteEntry>?> PullNotesDictionaryAsync()
     {
         if (!IsConnected || _localId == null) return null;
         try
@@ -332,24 +513,91 @@ public class FirebaseSync : IDisposable
             if (!response.IsSuccessStatusCode) return null;
 
             var content = await response.Content.ReadAsStringAsync();
-            if (string.IsNullOrEmpty(content) || content == "null") return [];
+            if (string.IsNullOrEmpty(content) || content == "null")
+                return [];
 
-            var dict = JsonSerializer.Deserialize<Dictionary<string, NoteEntry>>(content);
-            return dict?.Values.ToList() ?? [];
+            return JsonSerializer.Deserialize<Dictionary<string, NoteEntry>>(content, NotePullJsonOptions) ?? [];
         }
         catch { return null; }
     }
 
+    public async Task<Dictionary<string, NoteDeletionEntry>?> PullNoteDeletionsAsync()
+    {
+        if (!IsConnected || _localId == null) return null;
+        try
+        {
+            var url = $"{_databaseUrl}/users/{_localId}/noteDeletions.json?auth={_idToken}";
+            var response = await _http.GetAsync(url);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var content = await response.Content.ReadAsStringAsync();
+            if (string.IsNullOrEmpty(content) || content == "null")
+                return [];
+
+            return JsonSerializer.Deserialize<Dictionary<string, NoteDeletionEntry>>(content, NotePullJsonOptions) ?? [];
+        }
+        catch { return null; }
+    }
+
+    public async Task<List<NoteEntry>?> PullNotesAsync()
+    {
+        var dict = await PullNotesDictionaryAsync();
+        return dict == null ? null : dict.Values.ToList();
+    }
+
+    /// <summary>
+    /// Reads current cloud notes + deletions, merges with <paramref name="notes"/> (same rules as web), then PATCHes <c>users/{uid}</c> with <c>notes</c> and <c>noteDeletions</c>.
+    /// </summary>
     public async Task<bool> PushNotesAsync(IReadOnlyList<NoteEntry> notes)
     {
         if (!IsConnected || _localId == null) return false;
         try
         {
-            var dict = notes.ToDictionary(n => n.Id);
             var url = $"{_databaseUrl}/users/{_localId}/notes.json?auth={_idToken}";
-            var json = JsonSerializer.Serialize(dict);
-            var response = await _http.PutAsync(url, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-            return response.IsSuccessStatusCode;
+            using var getResponse = await _http.GetAsync(url);
+            if (!getResponse.IsSuccessStatusCode)
+                return false;
+
+            var remoteBody = await getResponse.Content.ReadAsStringAsync();
+            Dictionary<string, NoteEntry> remoteDict;
+            if (string.IsNullOrEmpty(remoteBody) || remoteBody == "null")
+                remoteDict = [];
+            else
+                remoteDict = JsonSerializer.Deserialize<Dictionary<string, NoteEntry>>(remoteBody, NotePullJsonOptions) ?? [];
+
+            var everSeen = AppSettings.LoadFirebaseEverSeenNoteIds(_localId);
+            var merged = MergeNotesForPush(notes, remoteDict, everSeen);
+            foreach (var id in merged.Keys)
+                everSeen.Add(id);
+            AppSettings.SaveFirebaseEverSeenNoteIds(_localId, everSeen);
+
+            Dictionary<string, NoteDeletionEntry> prevDeletions;
+            var delUrl = $"{_databaseUrl}/users/{_localId}/noteDeletions.json?auth={_idToken}";
+            using (var delResponse = await _http.GetAsync(delUrl))
+            {
+                var delBody = await delResponse.Content.ReadAsStringAsync();
+                if (string.IsNullOrEmpty(delBody) || delBody == "null")
+                    prevDeletions = [];
+                else
+                    prevDeletions = JsonSerializer.Deserialize<Dictionary<string, NoteDeletionEntry>>(delBody, NotePullJsonOptions) ?? [];
+            }
+
+            var nextDeletions = MergeNoteDeletionsForPush(merged, remoteDict, prevDeletions);
+
+            var userUrl = $"{_databaseUrl}/users/{_localId}.json?auth={_idToken}";
+            var patchPayload = new Dictionary<string, object>
+            {
+                ["notes"] = merged,
+                ["noteDeletions"] = nextDeletions
+            };
+            var patchJson = JsonSerializer.Serialize(patchPayload);
+            using var patchResponse = await _http.PatchAsync(userUrl, new StringContent(patchJson, Encoding.UTF8, "application/json"));
+            if (patchResponse.IsSuccessStatusCode)
+            {
+                Interlocked.Increment(ref _sseSkips);
+                return true;
+            }
+            return false;
         }
         catch { return false; }
     }
@@ -386,8 +634,90 @@ public class FirebaseSync : IDisposable
         catch { return null; }
     }
 
+    // ── SSE Real-time Listener ──────────────────────────────────
+
+    public void StartListening(Action onDataChanged)
+    {
+        StopListening();
+        _listenerCts = new CancellationTokenSource();
+        _ = ListenLoopAsync(onDataChanged, _listenerCts.Token);
+    }
+
+    public void StopListening()
+    {
+        _listenerCts?.Cancel();
+        _listenerCts?.Dispose();
+        _listenerCts = null;
+    }
+
+    private async Task ListenLoopAsync(Action onDataChanged, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await ListenOnceAsync(onDataChanged, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch
+            {
+                try { await Task.Delay(5000, ct); } catch { break; }
+            }
+        }
+    }
+
+    private async Task ListenOnceAsync(Action onDataChanged, CancellationToken ct)
+    {
+        if (!IsConnected || _localId == null)
+        {
+            await Task.Delay(5000, ct);
+            return;
+        }
+
+        var url = $"{_databaseUrl}/users/{_localId}/notes.json?auth={_idToken}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        using var sseClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        using var response = await sseClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        var isFirstPut = true;
+
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line == null) break;
+
+            if (!line.StartsWith("event:", StringComparison.Ordinal)) continue;
+            var eventType = line["event:".Length..].Trim();
+
+            if (eventType is not "put" and not "patch") continue;
+
+            // Skip the initial full snapshot (we already have the data)
+            if (isFirstPut)
+            {
+                isFirstPut = false;
+                continue;
+            }
+
+            // Skip echoes of our own writes
+            if (Interlocked.CompareExchange(ref _sseSkips, 0, 0) > 0)
+            {
+                Interlocked.Decrement(ref _sseSkips);
+                continue;
+            }
+
+            onDataChanged();
+        }
+    }
+
     public void Dispose()
     {
+        StopListening();
         _refreshTimer?.Dispose();
         _http.Dispose();
     }

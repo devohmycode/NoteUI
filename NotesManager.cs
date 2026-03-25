@@ -46,7 +46,7 @@ public class NotesManager
         Load();
     }
 
-    public void Save()
+    public void Save(bool localOnly = false)
     {
         try
         {
@@ -55,6 +55,8 @@ public class NotesManager
             File.WriteAllText(_savePath, json);
         }
         catch { }
+
+        if (localOnly) return;
 
         // Fire-and-forget push to cloud
         if (Firebase is { IsConnected: true })
@@ -125,21 +127,19 @@ public class NotesManager
         IsSyncing = true;
         try
         {
-            var remote = await Firebase.PullNotesAsync();
-            if (remote == null) return false;
+            var remoteDict = await Firebase.PullNotesDictionaryAsync();
+            if (remoteDict == null) return false;
 
-            var merged = new Dictionary<string, NoteEntry>();
-            foreach (var n in _notes)
-                merged[n.Id] = n;
-            foreach (var n in remote)
-            {
-                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
-                    merged[n.Id] = n;
-            }
+            var remote = remoteDict.Values.ToList();
+            var deletionDict = await Firebase.PullNoteDeletionsAsync() ?? [];
+            var tombstones = new HashSet<string>(deletionDict.Keys, StringComparer.Ordinal);
+            var everSeen = AppSettings.LoadFirebaseEverSeenNoteIds(Firebase.LocalUserId ?? "");
+            var merged = FirebaseSync.MergePullWithLocal(_notes, remote, everSeen, tombstones);
+            AppSettings.SaveFirebaseEverSeenNoteIds(Firebase.LocalUserId ?? "", everSeen);
 
             _notes.Clear();
-            _notes.AddRange(merged.Values);
-            Save();
+            _notes.AddRange(merged);
+            Save(localOnly: true);
             return true;
         }
         catch { return false; }
@@ -185,6 +185,9 @@ public class NotesManager
             ["theme"] = AppSettings.LoadThemeSetting(),
             ["backdrop"] = AppSettings.LoadSettings().Type,
         };
+        var masterPwHash = AppSettings.LoadMasterPasswordHash();
+        if (!string.IsNullOrEmpty(masterPwHash))
+            settings["masterPasswordHash"] = masterPwHash;
         await Firebase.PushSettingsAsync(settings);
     }
 
@@ -210,6 +213,12 @@ public class NotesManager
             var theme = themeEl.GetString();
             if (!string.IsNullOrEmpty(theme))
                 AppSettings.SaveThemeSetting(theme);
+        }
+        if (remote.TryGetValue("masterPasswordHash", out var mpEl))
+        {
+            var hash = mpEl.GetString();
+            if (!string.IsNullOrEmpty(hash))
+                AppSettings.SaveMasterPasswordHash(hash);
         }
         if (remote.TryGetValue("backdrop", out var backdropEl))
         {
@@ -256,13 +265,14 @@ public class NotesManager
                 merged[n.Id] = n;
             foreach (var n in remote)
             {
-                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt > local.UpdatedAt)
+                // Prefer remote when newer or same instant (avoids losing pin-only web updates if clocks align to the same tick).
+                if (!merged.TryGetValue(n.Id, out var local) || n.UpdatedAt.ToUniversalTime() >= local.UpdatedAt.ToUniversalTime())
                     merged[n.Id] = n;
             }
 
             _notes.Clear();
             _notes.AddRange(merged.Values);
-            Save();
+            Save(localOnly: true);
             return true;
         }
         catch { return false; }
@@ -357,6 +367,7 @@ public class NotesManager
             Title = source.Title,
             Content = source.Content,
             Color = source.Color,
+            IsLocked = source.IsLocked,
             NoteType = source.NoteType,
             Tasks = source.Tasks.Select(t => new TaskItem { Text = t.Text, IsDone = t.IsDone }).ToList(),
             CreatedAt = DateTime.Now,
@@ -374,11 +385,18 @@ public class NotesManager
         Save();
     }
 
+    public void DeleteAllNotes()
+    {
+        _notes.Clear();
+        Save();
+    }
+
     public void TogglePin(string id)
     {
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note == null) return;
         note.IsPinned = !note.IsPinned;
+        note.UpdatedAt = DateTime.Now;
         Save();
     }
 
@@ -396,6 +414,15 @@ public class NotesManager
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note == null) return;
         note.IsArchived = !note.IsArchived;
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public void ToggleLock(string id)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.IsLocked = !note.IsLocked;
         note.UpdatedAt = DateTime.Now;
         Save();
     }
@@ -453,12 +480,26 @@ public class NoteEntry
     public bool IsPinned { get; set; }
     public bool IsFavorite { get; set; }
     public bool IsArchived { get; set; }
+    public bool IsLocked { get; set; }
     public List<string> Tags { get; set; } = [];
     public DateTime? ReminderAt { get; set; }
     public string NoteType { get; set; } = "note"; // "note" or "tasklist"
     public List<TaskItem> Tasks { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    // Window position, size & state
+    public int? PosX { get; set; }
+    public int? PosY { get; set; }
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public bool IsCompact { get; set; }
+
+    // Attachment: attach note to a running process or an Explorer folder
+    public string? AttachTarget { get; set; }    // process name, window title fragment, or folder path
+    public string? AttachMode { get; set; }      // "process" | "title" | "folder" | null
+    public int AttachOffsetX { get; set; }       // relative X offset to target window
+    public int AttachOffsetY { get; set; }       // relative Y offset to target window
 
     private static readonly string[] MonthNames =
         ["", "janv.", "f\u00e9vr.", "mars", "avr.", "mai", "juin", "juil.", "ao\u00fbt", "sept.", "oct.", "nov.", "d\u00e9c."];
@@ -592,7 +633,7 @@ public class NoteEntry
                 }
                 continue;
             }
-            if (depth <= 1 && (c >= ' ' || c == '\n' || c == '\t'))
+            if (depth <= 1 && c >= ' ')
                 result.Append(c);
             i++;
         }
