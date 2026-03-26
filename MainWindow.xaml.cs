@@ -1199,6 +1199,16 @@ public sealed partial class MainWindow : Window
                 _openNoteWindows.Clear();
                 _notes.DeleteAllNotes();
                 RefreshCurrentView();
+            },
+            startWithWindows: AppSettings.LoadStartWithWindows(),
+            startMinimized: AppSettings.LoadStartMinimized(),
+            onStartWithWindowsToggled: enabled =>
+            {
+                AppSettings.SaveStartWithWindows(enabled);
+            },
+            onStartMinimizedToggled: enabled =>
+            {
+                AppSettings.SaveStartMinimized(enabled);
             });
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;

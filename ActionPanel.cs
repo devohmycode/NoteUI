@@ -199,7 +199,9 @@ public static class ActionPanel
         Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null,
         string? currentNoteStyle = null, Action<string>? onNoteStyleSelected = null,
         string? currentFont = null, Action<string>? onFontSelected = null,
-        Action? onResetPassword = null, Action? onResetNotes = null)
+        Action? onResetPassword = null, Action? onResetNotes = null,
+        bool startWithWindows = false, bool startMinimized = false,
+        Action<bool>? onStartWithWindowsToggled = null, Action<bool>? onStartMinimizedToggled = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -331,6 +333,17 @@ public static class ActionPanel
                 CreateRadioSubMenu("Language", langs, currentLanguage ?? "en", c => { onLanguageSelected(c); flyout.Hide(); }));
             allButtons.Add(langBtn);
             panel.Children.Add(langBtn);
+        }
+
+        // Startup
+        if (onStartWithWindowsToggled != null || onStartMinimizedToggled != null)
+        {
+            var startupBtn = CreateNavigateButton(Lang.T("startup"), () =>
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled));
+            startupBtn.Tag = Lang.T("startup") + " Démarrage Startup Windows Tray";
+            allButtons.Add(startupBtn);
+            panel.Children.Add(startupBtn);
         }
 
         // Reset
@@ -692,6 +705,52 @@ public static class ActionPanel
     }
 
     // ── Reset sub-panel ──
+
+    private static void ShowStartupSubPanel(Flyout flyout,
+        bool startWithWindows, bool startMinimized,
+        Action<bool>? onStartWithWindowsToggled, Action<bool>? onStartMinimizedToggled)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("startup"), () =>
+        {
+            flyout.Hide();
+        });
+
+        if (onStartWithWindowsToggled != null)
+        {
+            var swBtn = CreateCheckItem(Lang.T("startup_with_windows"), startWithWindows, () =>
+            {
+                startWithWindows = !startWithWindows;
+                onStartWithWindowsToggled(startWithWindows);
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled);
+            });
+            panel.Children.Add(swBtn);
+        }
+
+        if (onStartMinimizedToggled != null)
+        {
+            var smBtn = CreateCheckItem(Lang.T("startup_minimized"), startMinimized, () =>
+            {
+                startMinimized = !startMinimized;
+                onStartMinimizedToggled(startMinimized);
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled);
+            });
+            panel.Children.Add(smBtn);
+
+            var desc = new TextBlock
+            {
+                Text = Lang.T("startup_minimized_desc"),
+                FontSize = 11,
+                Opacity = 0.45,
+                Margin = new Thickness(12, 0, 8, 4),
+                TextWrapping = TextWrapping.Wrap
+            };
+            panel.Children.Add(desc);
+        }
+
+        flyout.Content = panel;
+    }
 
     private static void ShowResetSubPanel(Flyout flyout, Action? onResetPassword, Action? onResetNotes)
     {
