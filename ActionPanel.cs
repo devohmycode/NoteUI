@@ -2152,8 +2152,102 @@ public static class ActionPanel
             Margin = new Thickness(0, 2, 0, 10)
         };
         versionLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = Lang.T("about_version") + " " });
-        versionLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = "0.3.0" });
+        versionLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = UpdateService.CurrentVersion });
         panel.Children.Add(versionLabel);
+
+        // Check for updates button
+        var updateBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Content = Lang.T("update_check"),
+            FontSize = 11,
+            Padding = new Thickness(12, 4, 12, 4),
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 0, 0, 6),
+            MinHeight = 0
+        };
+        updateBtn.Click += async (sender, _) =>
+        {
+            var btn = (Button)sender;
+            btn.IsEnabled = false;
+            btn.Content = Lang.T("update_checking");
+            var update = await UpdateService.CheckForUpdateAsync();
+            if (update == null)
+            {
+                btn.Content = Lang.T("update_up_to_date");
+                await Task.Delay(2000);
+                btn.Content = Lang.T("update_check");
+                btn.IsEnabled = true;
+            }
+            else
+            {
+                btn.Content = Lang.T("update_new_version", update.Version);
+                btn.IsEnabled = true;
+
+                // Replace with download button
+                var downloadBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontSize = 11,
+                    Padding = new Thickness(12, 4, 12, 4),
+                    CornerRadius = new CornerRadius(4),
+                    Margin = new Thickness(0, 2, 0, 6),
+                    MinHeight = 0,
+                    Style = Application.Current.Resources["AccentButtonStyle"] as Style
+                };
+
+                string? downloadedPath = null;
+
+                if (!string.IsNullOrEmpty(update.DownloadUrl))
+                {
+                    downloadBtn.Content = Lang.T("update_download");
+                    downloadBtn.Click += async (s, e) =>
+                    {
+                        var dlBtn = (Button)s!;
+
+                        // If already downloaded, launch installer
+                        if (downloadedPath != null)
+                        {
+                            UpdateService.LaunchInstallerAndExit(downloadedPath);
+                            return;
+                        }
+
+                        dlBtn.IsEnabled = false;
+                        var progress = new Progress<double>(p =>
+                            dlBtn.DispatcherQueue.TryEnqueue(() =>
+                                dlBtn.Content = Lang.T("update_downloading", (int)(p * 100))));
+                        var path = await UpdateService.DownloadInstallerAsync(update.DownloadUrl, progress);
+                        if (path != null)
+                        {
+                            downloadedPath = path;
+                            dlBtn.Content = Lang.T("update_install");
+                            dlBtn.IsEnabled = true;
+                        }
+                        else
+                        {
+                            dlBtn.Content = Lang.T("update_error");
+                            dlBtn.IsEnabled = true;
+                        }
+                    };
+                }
+                else
+                {
+                    // No direct download, open release page
+                    downloadBtn.Content = Lang.T("update_release_notes");
+                    downloadBtn.Click += (s, e) =>
+                    {
+                        Windows.System.Launcher.LaunchUriAsync(new Uri(update.ReleaseUrl));
+                    };
+                }
+
+                // Insert download button after the update check button
+                var parentPanel = (StackPanel)btn.Parent;
+                var idx = parentPanel.Children.IndexOf(btn);
+                if (idx >= 0 && idx < parentPanel.Children.Count)
+                    parentPanel.Children.Insert(idx + 1, downloadBtn);
+            }
+        };
+        panel.Children.Add(updateBtn);
 
         panel.Children.Add(CreateSeparator());
 
@@ -2173,16 +2267,10 @@ public static class ActionPanel
         githubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         githubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        // GitHub icon (SVG path)
-        var githubIcon = new PathIcon
-        {
-            Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
-                typeof(Microsoft.UI.Xaml.Media.Geometry),
-                "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"),
-            Width = 14,
-            Height = 14,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        // GitHub icon
+        var githubIcon = CreateSvgIcon(
+            "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z",
+            14);
         Grid.SetColumn(githubIcon, 0);
         githubGrid.Children.Add(githubIcon);
 
@@ -2222,16 +2310,10 @@ public static class ActionPanel
         coffeeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         coffeeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        // BuyMeACoffee icon (coffee cup SVG path)
-        var coffeeIcon = new PathIcon
-        {
-            Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
-                typeof(Microsoft.UI.Xaml.Media.Geometry),
-                "M20.216 6.415l-.132-.666c-.119-.598-.388-1.163-1.001-1.379-.197-.069-.42-.098-.57-.241-.152-.143-.196-.366-.231-.572-.065-.378-.125-.756-.192-1.133-.057-.325-.102-.69-.25-.987-.195-.4-.597-.634-.996-.788a5.723 5.723 0 00-.626-.194c-1-.263-2.05-.36-3.077-.416a25.834 25.834 0 00-3.7.062c-.915.083-1.88.184-2.75.5-.318.116-.646.256-.888.501-.297.302-.393.77-.177 1.146.154.267.415.456.692.58.36.162.737.284 1.123.366 1.075.238 2.189.331 3.287.37 1.218.05 2.437.01 3.65-.118.299-.033.598-.073.896-.119.352-.054.578-.513.474-.834-.124-.383-.457-.531-.834-.473-.466.074-.96.108-1.382.146-1.177.08-2.358.082-3.536.006a22.228 22.228 0 01-1.157-.107c-.086-.01-.18-.025-.258-.036-.243-.036-.484-.08-.724-.13-.111-.027-.111-.185 0-.212h.005c.277-.06.557-.108.838-.147h.002c.131-.009.263-.032.394-.048a25.076 25.076 0 013.426-.12c.674.019 1.347.062 2.014.13.37.04.736.1 1.101.17.088.016.164.073.233.13a.595.595 0 01.095.166c.043.122.037.272.069.405.07.291.197.582.332.845.134.264.27.528.405.793.07.138.01.3-.138.337-.349.073-.498.127-.498.127l.007.003c-.69.157-1.428.176-2.131.136-.475-.027-.947-.09-1.41-.186-.24-.048-.478-.107-.712-.176a.675.675 0 01-.312-.206.582.582 0 01-.115-.348c.005-.184-.007-.37-.027-.554-.047-.407-.112-.813-.184-1.218-.043-.246-.091-.491-.143-.736-.033-.148-.077-.297-.099-.447a.975.975 0 01.07-.576.49.49 0 01.202-.211c.063-.034.136-.05.186-.109.054-.063.058-.157.06-.235.004-.116-.01-.236-.01-.354l.002.001zm-11.129 1.99c.003-.115-.025-.236-.064-.342a.572.572 0 00-.273-.296c-.107-.049-.22-.073-.333-.099a3.582 3.582 0 00-.6-.076 4.383 4.383 0 00-1.324.156 2.12 2.12 0 00-.487.205 1.4 1.4 0 00-.273.216c-.088.094-.151.207-.185.332a1.017 1.017 0 00.032.588c.053.135.143.244.257.333a2.4 2.4 0 00.725.338c.57.178 1.188.224 1.78.113.139-.026.272-.067.395-.131.113-.057.222-.133.301-.235.068-.09.117-.19.131-.308l.001-.018v-.001c.004-.077.004-.154.004-.232-.003-.103.003-.21-.087-.343zM7.5 12.5c0 .552-.448 1-1 1s-1-.448-1-1 .448-1 1-1 1 .448 1 1zM2 17.5h20v1c0 1.657-1.343 3-3 3H5c-1.657 0-3-1.343-3-3v-1z"),
-            Width = 14,
-            Height = 14,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        // BuyMeACoffee icon (coffee cup)
+        var coffeeIcon = CreateSvgIcon(
+            "M3 6h10v6c0 1.66-1.34 3-3 3H6c-1.66 0-3-1.34-3-3V6z M13 8h1.5c1.1 0 2 .9 2 2s-.9 2-2 2H13 M5.5 1v2 M8 1v2 M10.5 1v2 M2 16h12",
+            14, isFilled: false);
         Grid.SetColumn(coffeeIcon, 0);
         coffeeGrid.Children.Add(coffeeIcon);
 
@@ -2256,6 +2338,42 @@ public static class ActionPanel
         panel.Children.Add(coffeeBtn);
 
         flyout.Content = panel;
+    }
+
+    private static FrameworkElement CreateSvgIcon(string pathData, double size, bool isFilled = true)
+    {
+        var path = new Microsoft.UI.Xaml.Shapes.Path
+        {
+            Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
+                typeof(Microsoft.UI.Xaml.Media.Geometry), pathData),
+            Stretch = Stretch.Uniform
+        };
+
+        if (isFilled)
+        {
+            path.Fill = new SolidColorBrush(ThemeHelper.IsDark()
+                ? Microsoft.UI.Colors.White
+                : Microsoft.UI.Colors.Black);
+        }
+        else
+        {
+            path.Stroke = new SolidColorBrush(ThemeHelper.IsDark()
+                ? Microsoft.UI.Colors.White
+                : Microsoft.UI.Colors.Black);
+            path.StrokeThickness = 1.2;
+            path.StrokeLineJoin = Microsoft.UI.Xaml.Media.PenLineJoin.Round;
+            path.StrokeStartLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round;
+            path.StrokeEndLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round;
+        }
+
+        var viewbox = new Viewbox
+        {
+            Width = size,
+            Height = size,
+            Child = path,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        return viewbox;
     }
 
     private static StackPanel CreateSubPanelWithHeader(string title, Action onBack)

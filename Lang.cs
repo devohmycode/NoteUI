@@ -363,6 +363,19 @@ public static class Lang
             ["no_windows_found"] = "No windows found",
             ["select_website"] = "Select a website tab",
             ["no_web_tabs_found"] = "No web tabs found",
+
+            // ── Update ──────────────────────────────────────────────
+            ["update_available"] = "Update available",
+            ["update_new_version"] = "Version {0} is available",
+            ["update_download"] = "Download and install",
+            ["update_downloading"] = "Downloading... {0}%",
+            ["update_ready"] = "Ready to install",
+            ["update_install"] = "Install and restart",
+            ["update_error"] = "Update error",
+            ["update_up_to_date"] = "Up to date",
+            ["update_checking"] = "Checking...",
+            ["update_check"] = "Check for updates",
+            ["update_release_notes"] = "Release notes",
         },
 
         ["fr"] = new()
@@ -722,6 +735,19 @@ public static class Lang
             ["no_windows_found"] = "Aucune fenêtre trouvée",
             ["select_website"] = "Sélectionner un onglet web",
             ["no_web_tabs_found"] = "Aucun onglet web trouvé",
+
+            // ── Update ──────────────────────────────────────────────
+            ["update_available"] = "Mise à jour disponible",
+            ["update_new_version"] = "La version {0} est disponible",
+            ["update_download"] = "Télécharger et installer",
+            ["update_downloading"] = "Téléchargement... {0}%",
+            ["update_ready"] = "Prêt à installer",
+            ["update_install"] = "Installer et redémarrer",
+            ["update_error"] = "Erreur de mise à jour",
+            ["update_up_to_date"] = "À jour",
+            ["update_checking"] = "Vérification...",
+            ["update_check"] = "Vérifier les mises à jour",
+            ["update_release_notes"] = "Notes de version",
         }
     };
 

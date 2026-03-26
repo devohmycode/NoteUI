@@ -1,7 +1,7 @@
 [Setup]
 AppId={{B8A3D1E7-4F2C-4B9A-8E6D-1A5C3F7E9D2B}
 AppName=NoteUI
-AppVersion=0.2.0
+AppVersion=0.3.0
 AppPublisher=NoteUI
 DefaultDirName={localappdata}\Programs\NoteUI
 DefaultGroupName=NoteUI
@@ -13,6 +13,9 @@ UninstallDisplayIcon={app}\NoteUI.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+CloseApplications=yes
+CloseApplicationsFilter=NoteUI.exe
+RestartApplications=yes
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"

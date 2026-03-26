@@ -180,6 +180,9 @@ public sealed partial class MainWindow : Window
 
         // Auto-connect cloud sync if previously configured
         _ = InitCloudSync();
+
+        // Check for updates in background
+        _ = CheckForUpdateOnStartupAsync();
     }
 
     private void ApplyLocalization()
@@ -202,6 +205,56 @@ public sealed partial class MainWindow : Window
         UpdateSyncButtonVisibility();
         RefreshCurrentView();
         StartFirebaseListener();
+    }
+
+    // ── Auto-update ────────────────────────────────────────────
+
+    private UpdateService.UpdateInfo? _pendingUpdate;
+
+    private async Task CheckForUpdateOnStartupAsync()
+    {
+        await Task.Delay(3000); // Let the app settle first
+        var update = await UpdateService.CheckForUpdateAsync();
+        if (update == null) return;
+
+        _pendingUpdate = update;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateBannerText.Text = Lang.T("update_new_version", update.Version);
+            UpdateBanner.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        });
+    }
+
+    private async void UpdateBanner_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate == null) return;
+
+        if (string.IsNullOrEmpty(_pendingUpdate.DownloadUrl))
+        {
+            _ = Windows.System.Launcher.LaunchUriAsync(new Uri(_pendingUpdate.ReleaseUrl));
+            return;
+        }
+
+        UpdateBanner.IsEnabled = false;
+        UpdateBannerText.Text = Lang.T("update_downloading", 0);
+
+        var progress = new Progress<double>(p =>
+            DispatcherQueue.TryEnqueue(() =>
+                UpdateBannerText.Text = Lang.T("update_downloading", (int)(p * 100))));
+
+        var path = await UpdateService.DownloadInstallerAsync(_pendingUpdate.DownloadUrl, progress);
+        if (path != null)
+        {
+            UpdateBannerText.Text = Lang.T("update_install");
+            UpdateBanner.IsEnabled = true;
+            UpdateBanner.Click -= UpdateBanner_Click;
+            UpdateBanner.Click += (_, _) => UpdateService.LaunchInstallerAndExit(path);
+        }
+        else
+        {
+            UpdateBannerText.Text = Lang.T("update_error");
+            UpdateBanner.IsEnabled = true;
+        }
     }
 
     /// <summary>Real-time SSE listener on RTDB notes, replaces periodic polling.</summary>

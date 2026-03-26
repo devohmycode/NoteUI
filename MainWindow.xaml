@@ -94,6 +94,22 @@
                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
         </Grid>
 
+        <!-- Update banner -->
+        <Button x:Name="UpdateBanner" Grid.Row="3" Visibility="Collapsed"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                BorderThickness="0" CornerRadius="6" Margin="12,0,12,8"
+                Padding="8,6" MinHeight="0" FontSize="12"
+                Click="UpdateBanner_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <FontIcon Glyph="&#xE896;" FontSize="12"
+                          Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+                <TextBlock x:Name="UpdateBannerText" Text="" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+            </StackPanel>
+        </Button>
+
         <!-- Row 3: Notes list -->
         <ScrollViewer x:Name="NotesScroll" Grid.Row="3" Padding="12,0,12,12"
                       VerticalScrollBarVisibility="Auto"
