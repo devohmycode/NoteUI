@@ -199,7 +199,11 @@ public static class ActionPanel
         Action<Flyout>? onShowAi = null, Action<Flyout>? onShowPrompts = null,
         string? currentNoteStyle = null, Action<string>? onNoteStyleSelected = null,
         string? currentFont = null, Action<string>? onFontSelected = null,
-        Action? onResetPassword = null, Action? onResetNotes = null)
+        Action? onResetPassword = null, Action? onResetNotes = null,
+        bool startWithWindows = false, bool startMinimized = false,
+        Action<bool>? onStartWithWindowsToggled = null, Action<bool>? onStartMinimizedToggled = null,
+        string? currentSort = null, Action<string>? onSortSelected = null,
+        bool compactCards = false, Action<bool>? onCompactToggled = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -249,6 +253,37 @@ public static class ActionPanel
             fontBtn.Tag = Lang.T("font_section") + " Police Font Geist Inter Segoe JetBrains";
             allButtons.Add(fontBtn);
             panel.Children.Add(fontBtn);
+        }
+
+        // Sort
+        if (onSortSelected != null)
+        {
+            var sorts = new[] {
+                ("recent", Lang.T("sort_recent")),
+                ("created", Lang.T("sort_created")),
+                ("alpha", Lang.T("sort_alpha")),
+                ("color", Lang.T("sort_color")),
+                ("size", Lang.T("sort_size"))
+            };
+            var sort = currentSort ?? "recent";
+            var sortBtn = CreateCascadeButton(Lang.T("sort_section"), FindLabel(sorts, sort),
+                CreateRadioSubMenu("Sort", sorts, sort, k => { onSortSelected(k); flyout.Hide(); }));
+            sortBtn.Tag = Lang.T("sort_section") + " Tri Sort Récent Alphabétique Couleur Taille";
+            allButtons.Add(sortBtn);
+            panel.Children.Add(sortBtn);
+        }
+
+        // Compact cards toggle
+        if (onCompactToggled != null)
+        {
+            var compactBtn = CreateCheckItem(Lang.T("compact_cards"), compactCards, () =>
+            {
+                onCompactToggled(!compactCards);
+                flyout.Hide();
+            });
+            compactBtn.Tag = Lang.T("compact_cards") + " Compact Liste";
+            allButtons.Add(compactBtn);
+            panel.Children.Add(compactBtn);
         }
 
         panel.Children.Add(CreateSeparator());
@@ -333,6 +368,17 @@ public static class ActionPanel
             panel.Children.Add(langBtn);
         }
 
+        // Startup
+        if (onStartWithWindowsToggled != null || onStartMinimizedToggled != null)
+        {
+            var startupBtn = CreateNavigateButton(Lang.T("startup"), () =>
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled));
+            startupBtn.Tag = Lang.T("startup") + " Démarrage Startup Windows Tray";
+            allButtons.Add(startupBtn);
+            panel.Children.Add(startupBtn);
+        }
+
         // Reset
         if (onResetPassword != null || onResetNotes != null)
         {
@@ -348,6 +394,14 @@ public static class ActionPanel
             allButtons.Add(resetBtn);
             panel.Children.Add(resetBtn);
         }
+
+        // About
+        panel.Children.Add(CreateSeparator());
+        var aboutBtn = CreateNavigateButton(Lang.T("about"), () =>
+            ShowAboutPanel(flyout));
+        aboutBtn.Tag = Lang.T("about") + " About À propos NoteUI OhMyCode";
+        allButtons.Add(aboutBtn);
+        panel.Children.Add(aboutBtn);
 
         // Search
         panel.Children.Add(CreateSeparator());
@@ -692,6 +746,52 @@ public static class ActionPanel
     }
 
     // ── Reset sub-panel ──
+
+    private static void ShowStartupSubPanel(Flyout flyout,
+        bool startWithWindows, bool startMinimized,
+        Action<bool>? onStartWithWindowsToggled, Action<bool>? onStartMinimizedToggled)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("startup"), () =>
+        {
+            flyout.Hide();
+        });
+
+        if (onStartWithWindowsToggled != null)
+        {
+            var swBtn = CreateCheckItem(Lang.T("startup_with_windows"), startWithWindows, () =>
+            {
+                startWithWindows = !startWithWindows;
+                onStartWithWindowsToggled(startWithWindows);
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled);
+            });
+            panel.Children.Add(swBtn);
+        }
+
+        if (onStartMinimizedToggled != null)
+        {
+            var smBtn = CreateCheckItem(Lang.T("startup_minimized"), startMinimized, () =>
+            {
+                startMinimized = !startMinimized;
+                onStartMinimizedToggled(startMinimized);
+                ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
+                    onStartWithWindowsToggled, onStartMinimizedToggled);
+            });
+            panel.Children.Add(smBtn);
+
+            var desc = new TextBlock
+            {
+                Text = Lang.T("startup_minimized_desc"),
+                FontSize = 11,
+                Opacity = 0.45,
+                Margin = new Thickness(12, 0, 8, 4),
+                TextWrapping = TextWrapping.Wrap
+            };
+            panel.Children.Add(desc);
+        }
+
+        flyout.Content = panel;
+    }
 
     private static void ShowResetSubPanel(Flyout flyout, Action? onResetPassword, Action? onResetNotes)
     {
@@ -2008,6 +2108,272 @@ public static class ActionPanel
         };
         acc.Invoked += (_, args) => { args.Handled = true; onBack(); };
         panel.KeyboardAccelerators.Add(acc);
+    }
+
+    // ── About sub-panel ──
+
+    private static void ShowAboutPanel(Flyout flyout)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("about"), () => flyout.Hide());
+
+        // App name
+        var appName = new TextBlock
+        {
+            Text = "NoteUI",
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 10, 0, 2)
+        };
+        panel.Children.Add(appName);
+
+        // Developer
+        var devLabel = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.6,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 0)
+        };
+        devLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = Lang.T("about_developer") + " : " });
+        devLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+        {
+            Text = "OhMyCode",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        panel.Children.Add(devLabel);
+
+        // Version
+        var versionLabel = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.45,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 2, 0, 10)
+        };
+        versionLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = Lang.T("about_version") + " " });
+        versionLabel.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = UpdateService.CurrentVersion });
+        panel.Children.Add(versionLabel);
+
+        // Check for updates button
+        var updateBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Content = Lang.T("update_check"),
+            FontSize = 11,
+            Padding = new Thickness(12, 4, 12, 4),
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 0, 0, 6),
+            MinHeight = 0
+        };
+        updateBtn.Click += async (sender, _) =>
+        {
+            var btn = (Button)sender;
+            btn.IsEnabled = false;
+            btn.Content = Lang.T("update_checking");
+            var update = await UpdateService.CheckForUpdateAsync();
+            if (update == null)
+            {
+                btn.Content = Lang.T("update_up_to_date");
+                await Task.Delay(2000);
+                btn.Content = Lang.T("update_check");
+                btn.IsEnabled = true;
+            }
+            else
+            {
+                btn.Content = Lang.T("update_new_version", update.Version);
+                btn.IsEnabled = true;
+
+                // Replace with download button
+                var downloadBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontSize = 11,
+                    Padding = new Thickness(12, 4, 12, 4),
+                    CornerRadius = new CornerRadius(4),
+                    Margin = new Thickness(0, 2, 0, 6),
+                    MinHeight = 0,
+                    Style = Application.Current.Resources["AccentButtonStyle"] as Style
+                };
+
+                string? downloadedPath = null;
+
+                if (!string.IsNullOrEmpty(update.DownloadUrl))
+                {
+                    downloadBtn.Content = Lang.T("update_download");
+                    downloadBtn.Click += async (s, e) =>
+                    {
+                        var dlBtn = (Button)s!;
+
+                        // If already downloaded, launch installer
+                        if (downloadedPath != null)
+                        {
+                            UpdateService.LaunchInstallerAndExit(downloadedPath);
+                            return;
+                        }
+
+                        dlBtn.IsEnabled = false;
+                        var progress = new Progress<double>(p =>
+                            dlBtn.DispatcherQueue.TryEnqueue(() =>
+                                dlBtn.Content = Lang.T("update_downloading", (int)(p * 100))));
+                        var path = await UpdateService.DownloadInstallerAsync(update.DownloadUrl, progress);
+                        if (path != null)
+                        {
+                            downloadedPath = path;
+                            dlBtn.Content = Lang.T("update_install");
+                            dlBtn.IsEnabled = true;
+                        }
+                        else
+                        {
+                            dlBtn.Content = Lang.T("update_error");
+                            dlBtn.IsEnabled = true;
+                        }
+                    };
+                }
+                else
+                {
+                    // No direct download, open release page
+                    downloadBtn.Content = Lang.T("update_release_notes");
+                    downloadBtn.Click += (s, e) =>
+                    {
+                        Windows.System.Launcher.LaunchUriAsync(new Uri(update.ReleaseUrl));
+                    };
+                }
+
+                // Insert download button after the update check button
+                var parentPanel = (StackPanel)btn.Parent;
+                var idx = parentPanel.Children.IndexOf(btn);
+                if (idx >= 0 && idx < parentPanel.Children.Count)
+                    parentPanel.Children.Insert(idx + 1, downloadBtn);
+            }
+        };
+        panel.Children.Add(updateBtn);
+
+        panel.Children.Add(CreateSeparator());
+
+        // GitHub link
+        var githubBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 6, 8, 6),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0
+        };
+        var githubGrid = new Grid { ColumnSpacing = 8 };
+        githubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        githubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        githubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // GitHub icon
+        var githubIcon = CreateSvgIcon(
+            "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z",
+            14);
+        Grid.SetColumn(githubIcon, 0);
+        githubGrid.Children.Add(githubIcon);
+
+        var githubText = new TextBlock
+        {
+            Text = "GitHub",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(githubText, 1);
+        githubGrid.Children.Add(githubText);
+
+        var githubChevron = new FontIcon { Glyph = "\uE8A7", FontSize = 10, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(githubChevron, 2);
+        githubGrid.Children.Add(githubChevron);
+
+        githubBtn.Content = githubGrid;
+        githubBtn.Click += (_, _) =>
+        {
+            _ = Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/devohmycode"));
+        };
+        panel.Children.Add(githubBtn);
+
+        // BuyMeACoffee link
+        var coffeeBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 6, 8, 6),
+            CornerRadius = new CornerRadius(4),
+            MinHeight = 0
+        };
+        var coffeeGrid = new Grid { ColumnSpacing = 8 };
+        coffeeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        coffeeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        coffeeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // BuyMeACoffee icon (coffee cup)
+        var coffeeIcon = CreateSvgIcon(
+            "M3 6h10v6c0 1.66-1.34 3-3 3H6c-1.66 0-3-1.34-3-3V6z M13 8h1.5c1.1 0 2 .9 2 2s-.9 2-2 2H13 M5.5 1v2 M8 1v2 M10.5 1v2 M2 16h12",
+            14, isFilled: false);
+        Grid.SetColumn(coffeeIcon, 0);
+        coffeeGrid.Children.Add(coffeeIcon);
+
+        var coffeeText = new TextBlock
+        {
+            Text = "Buy Me a Coffee",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(coffeeText, 1);
+        coffeeGrid.Children.Add(coffeeText);
+
+        var coffeeChevron = new FontIcon { Glyph = "\uE8A7", FontSize = 10, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(coffeeChevron, 2);
+        coffeeGrid.Children.Add(coffeeChevron);
+
+        coffeeBtn.Content = coffeeGrid;
+        coffeeBtn.Click += (_, _) =>
+        {
+            _ = Windows.System.Launcher.LaunchUriAsync(new Uri("https://buymeacoffee.com/ohmycodeapp"));
+        };
+        panel.Children.Add(coffeeBtn);
+
+        flyout.Content = panel;
+    }
+
+    private static FrameworkElement CreateSvgIcon(string pathData, double size, bool isFilled = true)
+    {
+        var path = new Microsoft.UI.Xaml.Shapes.Path
+        {
+            Data = (Microsoft.UI.Xaml.Media.Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(
+                typeof(Microsoft.UI.Xaml.Media.Geometry), pathData),
+            Stretch = Stretch.Uniform
+        };
+
+        if (isFilled)
+        {
+            path.Fill = new SolidColorBrush(ThemeHelper.IsDark()
+                ? Microsoft.UI.Colors.White
+                : Microsoft.UI.Colors.Black);
+        }
+        else
+        {
+            path.Stroke = new SolidColorBrush(ThemeHelper.IsDark()
+                ? Microsoft.UI.Colors.White
+                : Microsoft.UI.Colors.Black);
+            path.StrokeThickness = 1.2;
+            path.StrokeLineJoin = Microsoft.UI.Xaml.Media.PenLineJoin.Round;
+            path.StrokeStartLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round;
+            path.StrokeEndLineCap = Microsoft.UI.Xaml.Media.PenLineCap.Round;
+        }
+
+        var viewbox = new Viewbox
+        {
+            Width = size,
+            Height = size,
+            Child = path,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        return viewbox;
     }
 
     private static StackPanel CreateSubPanelWithHeader(string title, Action onBack)

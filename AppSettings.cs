@@ -176,6 +176,108 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["noteStyle"] = style });
     }
 
+    // ── Startup ─────────────────────────────────────────────────
+
+    private const string StartupRegistryKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+    private const string StartupRegistryName = "NoteUI";
+
+    public static bool LoadStartWithWindows()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(StartupRegistryKey, false);
+            return key?.GetValue(StartupRegistryName) is string;
+        }
+        catch { return false; }
+    }
+
+    public static void SaveStartWithWindows(bool enabled)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(StartupRegistryKey, true);
+            if (key == null) return;
+            if (enabled)
+            {
+                var exePath = Environment.ProcessPath ?? "";
+                if (!string.IsNullOrEmpty(exePath))
+                    key.SetValue(StartupRegistryName, $"\"{exePath}\"");
+            }
+            else
+            {
+                key.DeleteValue(StartupRegistryName, false);
+            }
+        }
+        catch { }
+    }
+
+    public static bool LoadStartMinimized()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("startMinimized", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static void SaveStartMinimized(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["startMinimized"] = enabled });
+    }
+
+    // ── Compact cards ────────────────────────────────────────
+
+    public static bool LoadCompactCards()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("compactCards", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static void SaveCompactCards(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["compactCards"] = enabled });
+    }
+
+    // ── Sort preference ────────────────────────────────────────
+
+    public static string LoadSortPreference()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("sortMode", out var prop))
+                    return prop.GetString() ?? "recent";
+            }
+        }
+        catch { }
+        return "recent";
+    }
+
+    public static void SaveSortPreference(string mode)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["sortMode"] = mode });
+    }
+
     // ── Slash commands ──────────────────────────────────────────
 
     public static bool LoadSlashEnabled()

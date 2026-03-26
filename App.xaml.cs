@@ -19,6 +19,12 @@ public partial class App : Application
         ReminderService.Initialize();
         _window = new MainWindow();
         _window.Activate();
+
+        if (AppSettings.LoadStartMinimized())
+        {
+            var appWindow = _window.AppWindow;
+            appWindow.Hide();
+        }
     }
 
     public static void ApplyFontResource(string font)

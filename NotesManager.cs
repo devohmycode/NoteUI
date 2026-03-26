@@ -454,12 +454,44 @@ public class NotesManager
             .ToList();
     }
 
-    public List<NoteEntry> GetSorted()
+    public NoteEntry? GetByTitle(string title)
+        => _notes.FirstOrDefault(n => n.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+
+    public List<NoteEntry> SearchByTitle(string partial)
+        => _notes.Where(n => n.Title.Contains(partial, StringComparison.OrdinalIgnoreCase))
+                 .OrderBy(n => n.Title).ToList();
+
+    public List<string> GetAllFolders()
     {
         return _notes
-            .OrderByDescending(n => n.IsPinned)
-            .ThenByDescending(n => n.CreatedAt)
+            .Where(n => !string.IsNullOrEmpty(n.Folder))
+            .Select(n => n.Folder!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => f)
             .ToList();
+    }
+
+    public void UpdateNoteFolder(string id, string? folder)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+        note.Folder = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+        note.UpdatedAt = DateTime.Now;
+        Save();
+    }
+
+    public List<NoteEntry> GetSorted(string sortMode = "recent")
+    {
+        var pinned = _notes.OrderByDescending(n => n.IsPinned);
+        return sortMode switch
+        {
+            "created" => pinned.ThenByDescending(n => n.CreatedAt).ToList(),
+            "alpha" => pinned.ThenBy(n => n.Title, StringComparer.OrdinalIgnoreCase).ToList(),
+            "color" => pinned.ThenBy(n => n.Color, StringComparer.OrdinalIgnoreCase)
+                             .ThenByDescending(n => n.UpdatedAt).ToList(),
+            "size" => pinned.ThenByDescending(n => n.Content?.Length ?? 0).ToList(),
+            _ => pinned.ThenByDescending(n => n.UpdatedAt).ToList(), // "recent"
+        };
     }
 }
 
@@ -500,6 +532,13 @@ public class NoteEntry
     public string? AttachMode { get; set; }      // "process" | "title" | "folder" | null
     public int AttachOffsetX { get; set; }       // relative X offset to target window
     public int AttachOffsetY { get; set; }       // relative Y offset to target window
+
+    // Clipboard source: the app/tab where content was copied from
+    public string? SourceExePath { get; set; }
+    public string? SourceTitle { get; set; }
+
+    // Folder/category
+    public string? Folder { get; set; }
 
     private static readonly string[] MonthNames =
         ["", "janv.", "f\u00e9vr.", "mars", "avr.", "mai", "juin", "juil.", "ao\u00fbt", "sept.", "oct.", "nov.", "d\u00e9c."];
