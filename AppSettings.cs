@@ -232,6 +232,52 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["startMinimized"] = enabled });
     }
 
+    // ── Compact cards ────────────────────────────────────────
+
+    public static bool LoadCompactCards()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("compactCards", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static void SaveCompactCards(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["compactCards"] = enabled });
+    }
+
+    // ── Sort preference ────────────────────────────────────────
+
+    public static string LoadSortPreference()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("sortMode", out var prop))
+                    return prop.GetString() ?? "recent";
+            }
+        }
+        catch { }
+        return "recent";
+    }
+
+    public static void SaveSortPreference(string mode)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["sortMode"] = mode });
+    }
+
     // ── Slash commands ──────────────────────────────────────────
 
     public static bool LoadSlashEnabled()

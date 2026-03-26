@@ -36,6 +36,7 @@ public sealed partial class NoteWindow : Window
 
     private Flyout? _slashFlyout;
     private bool _slashUndoing;
+    private Flyout? _noteLinkFlyout;
 
     private bool _autoResize;
     private const int AutoResizeMin = 150;
@@ -144,6 +145,10 @@ public sealed partial class NoteWindow : Window
         {
             LoadNote();
         }
+
+        // Intercept Ctrl+Click on note links BEFORE RichEditBox opens the browser
+        NoteEditor.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(NoteEditor_PointerPressedForLink), true);
 
         this.Closed += (_, _) =>
         {
@@ -447,6 +452,13 @@ public sealed partial class NoteWindow : Window
             NoteEditor.Document.SetText(TextSetOptions.None, _note.Content);
         _suppressTextChanged = false;
         NoteEditor.Focus(FocusState.Programmatic);
+    }
+
+    public void ReloadFromDisk()
+    {
+        _note = _notesManager.Notes.FirstOrDefault(n => n.Id == _note.Id) ?? _note;
+        LoadNote();
+        ApplyNoteColor(_note.Color);
     }
 
     private void SaveCurrentNote()
@@ -1165,6 +1177,21 @@ public sealed partial class NoteWindow : Window
                 _slashFlyout = SlashCommands.Show(NoteEditor, topActions, () => _slashFlyout = null);
             }
         }
+
+        // Detect [[ for note linking
+        if (_noteLinkFlyout == null)
+            DetectNoteLinkTrigger(NoteEditor);
+    }
+
+    private void NoteEditor_PointerPressedForLink(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not RichEditBox editor) return;
+
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Control);
+        if (!ctrl.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
+
+        DispatcherQueue.TryEnqueue(() => HandleNoteLinkClick(editor));
     }
 
     private void NoteEditor_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
@@ -1542,6 +1569,476 @@ public sealed partial class NoteWindow : Window
 
     // ── Screen capture ──────────────────────────────────────────
 
+    // ── Note links [[note name]] ──────────────────────────────
+
+    private void DetectNoteLinkTrigger(RichEditBox editor)
+    {
+        var sel = editor.Document.Selection;
+        if (sel == null) return;
+
+        // Get text before cursor (up to 100 chars back)
+        int cursorPos = sel.StartPosition;
+        int lookBack = Math.Min(cursorPos, 100);
+        if (lookBack < 2) return;
+
+        var range = editor.Document.GetRange(cursorPos - lookBack, cursorPos);
+        range.GetText(TextGetOptions.None, out var textBefore);
+        if (textBefore == null) return;
+
+        // Find last [[ that isn't closed
+        int openBracket = textBefore.LastIndexOf("[[", StringComparison.Ordinal);
+        if (openBracket < 0) return;
+
+        // Check no ]] between [[ and cursor
+        var afterBracket = textBefore[(openBracket + 2)..];
+        if (afterBracket.Contains("]]", StringComparison.Ordinal)) return;
+        if (afterBracket.Contains('\r') || afterBracket.Contains('\n')) return;
+
+        var query = afterBracket;
+        var bracketAbsPos = cursorPos - lookBack + openBracket;
+        ShowNoteLinkFlyout(editor, query, bracketAbsPos);
+    }
+
+    private void ShowNoteLinkFlyout(RichEditBox editor, string query, int bracketPos)
+    {
+        _noteLinkFlyout?.Hide();
+
+        var notes = string.IsNullOrEmpty(query)
+            ? _notesManager.Notes.Where(n => n.Id != _note.Id && !n.IsArchived)
+                .OrderByDescending(n => n.UpdatedAt).Take(10).ToList()
+            : _notesManager.SearchByTitle(query)
+                .Where(n => n.Id != _note.Id && !n.IsArchived).Take(10).ToList();
+
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(220, 280);
+
+        var panel = new StackPanel { Spacing = 0 };
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("link_note")));
+        panel.Children.Add(ActionPanel.CreateSeparator());
+
+        if (notes.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("no_notes_found"),
+                FontSize = 12,
+                Opacity = 0.5,
+                Margin = new Thickness(10, 8, 10, 8)
+            });
+        }
+
+        foreach (var note in notes)
+        {
+            var noteRef = note;
+            var btn = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 6, 10, 6),
+                CornerRadius = new CornerRadius(4),
+            };
+
+            var sp = new StackPanel { Spacing = 2 };
+            sp.Children.Add(new TextBlock
+            {
+                Text = note.Title,
+                FontSize = 13,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1
+            });
+
+            var preview = note.Preview;
+            if (!string.IsNullOrEmpty(preview))
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = preview,
+                    FontSize = 11,
+                    Opacity = 0.4,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxLines = 1
+                });
+            }
+
+            btn.Content = sp;
+            btn.Click += (_, _) =>
+            {
+                InsertNoteLink(editor, noteRef, bracketPos);
+                flyout.Hide();
+            };
+            panel.Children.Add(btn);
+        }
+
+        flyout.Content = panel;
+        flyout.ShouldConstrainToRootBounds = false;
+        flyout.Closed += (_, _) => _noteLinkFlyout = null;
+
+        _noteLinkFlyout = flyout;
+        flyout.ShowAt(editor, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft
+        });
+    }
+
+    private static readonly Windows.UI.Color NoteLinkColor = Windows.UI.Color.FromArgb(255, 140, 200, 120);
+
+    private void InsertNoteLink(RichEditBox editor, NoteEntry target, int bracketPos)
+    {
+        _suppressTextChanged = true;
+
+        // Delete from [[ to current cursor position
+        var sel = editor.Document.Selection;
+        int cursorPos = sel.StartPosition;
+        var range = editor.Document.GetRange(bracketPos, cursorPos);
+        range.Delete(TextRangeUnit.Character, 0);
+
+        // Insert: "Title⟨hidden-id⟩" — title in green underline, ID as hidden text
+        sel = editor.Document.Selection;
+        sel.TypeText(target.Title);
+        sel.SetRange(sel.EndPosition - target.Title.Length, sel.EndPosition);
+        sel.CharacterFormat.ForegroundColor = NoteLinkColor;
+        sel.CharacterFormat.Underline = UnderlineType.Single;
+
+        // Append hidden note ID (zero-width, hidden formatting)
+        sel.SetRange(sel.EndPosition, sel.EndPosition);
+        sel.TypeText("\u200B" + target.Id + "\u200B");
+        sel.SetRange(sel.EndPosition - target.Id.Length - 2, sel.EndPosition);
+        sel.CharacterFormat.Hidden = FormatEffect.On;
+        sel.CharacterFormat.ForegroundColor = NoteLinkColor;
+
+        // Move cursor after and reset format
+        sel.SetRange(sel.EndPosition, sel.EndPosition);
+        sel.CharacterFormat.Hidden = FormatEffect.Off;
+        sel.CharacterFormat.ForegroundColor = ThemeHelper.IsDark()
+            ? Windows.UI.Color.FromArgb(255, 255, 255, 255)
+            : Windows.UI.Color.FromArgb(255, 0, 0, 0);
+        sel.CharacterFormat.Underline = UnderlineType.None;
+
+        _suppressTextChanged = false;
+        SaveCurrentNote();
+        editor.Focus(FocusState.Programmatic);
+    }
+
+    public event Action<string>? NoteLinkClicked;
+
+    private void HandleNoteLinkClick(RichEditBox editor)
+    {
+        var sel = editor.Document.Selection;
+        if (sel == null) return;
+
+        var pos = sel.StartPosition;
+
+        // Check if character at cursor is green (note link)
+        var fg = editor.Document.GetRange(pos, pos + 1).CharacterFormat.ForegroundColor;
+        if (!IsNoteLinkColor(fg) && pos > 0)
+            fg = editor.Document.GetRange(pos - 1, pos).CharacterFormat.ForegroundColor;
+        if (!IsNoteLinkColor(fg)) return;
+
+        // Walk forward from cursor through ALL green text (including hidden ID)
+        // to find the hidden GUID after the visible title
+        int end = pos;
+        editor.Document.GetText(TextGetOptions.None, out var plainText);
+        int textLen = plainText.TrimEnd('\r', '\n').Length;
+        while (end < textLen)
+        {
+            var next = editor.Document.GetRange(end, end + 1);
+            if (!IsNoteLinkColor(next.CharacterFormat.ForegroundColor)) break;
+            end++;
+        }
+
+        // Get the full green range including hidden text
+        var fullRange = editor.Document.GetRange(pos > 0 ? pos - 1 : 0, end);
+        // Walk back to start of green
+        int start = fullRange.StartPosition;
+        while (start > 0)
+        {
+            var prev = editor.Document.GetRange(start - 1, start);
+            prev.GetText(TextGetOptions.None, out var ch);
+            if (ch == "\r" || ch == "\n" || !IsNoteLinkColor(prev.CharacterFormat.ForegroundColor)) break;
+            start--;
+        }
+
+        // Read visible text (IncludeNumbering skips hidden) and full text (None includes hidden)
+        var linkRange = editor.Document.GetRange(start, end);
+        linkRange.GetText(TextGetOptions.IncludeNumbering, out var visibleText);
+        linkRange.GetText(TextGetOptions.None, out var fullText2);
+        visibleText = visibleText?.TrimEnd('\r', '\n') ?? "";
+        fullText2 = fullText2?.TrimEnd('\r', '\n') ?? "";
+
+        // The hidden ID is the part of fullText that's NOT in visibleText
+        string? noteId = null;
+        if (fullText2.Length > visibleText.Length && fullText2.StartsWith(visibleText, StringComparison.Ordinal))
+        {
+            noteId = fullText2[visibleText.Length..].Trim('\u200B');
+        }
+
+        // Fallback: search by visible title
+        if (string.IsNullOrEmpty(noteId))
+        {
+            var target = _notesManager.GetByTitle(visibleText);
+            if (target != null) noteId = target.Id;
+        }
+
+        if (noteId != null)
+            NoteLinkClicked?.Invoke(noteId);
+    }
+
+    private static bool IsNoteLinkColor(Windows.UI.Color c)
+        => c.R == NoteLinkColor.R && c.G == NoteLinkColor.G && c.B == NoteLinkColor.B;
+
+    // ── Export ──────────────────────────────────────────────────
+
+    private string GetPlainText()
+    {
+        NoteEditor.Document.GetText(TextGetOptions.None, out var text);
+        return text.TrimEnd('\r', '\n');
+    }
+
+    private string ConvertNoteToMarkdown()
+    {
+        var doc = NoteEditor.Document;
+        doc.GetText(TextGetOptions.None, out var fullText);
+        fullText = fullText.TrimEnd('\r', '\n');
+        if (string.IsNullOrEmpty(fullText)) return "";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"# {_note.Title}");
+        sb.AppendLine();
+
+        int totalLen = fullText.Length;
+        int pos = 0;
+
+        while (pos < totalLen)
+        {
+            int paraEnd = fullText.IndexOf('\r', pos);
+            if (paraEnd < 0) paraEnd = totalLen;
+
+            if (paraEnd == pos) { sb.AppendLine(); pos = paraEnd + 1; continue; }
+
+            var paraRange = doc.GetRange(pos, paraEnd);
+            bool isBullet = paraRange.ParagraphFormat.ListType == MarkerType.Bullet;
+
+            var firstChar = doc.GetRange(pos, pos + 1);
+            float headingSize = firstChar.CharacterFormat.Size;
+            string prefix = "";
+            if (headingSize >= 24f) prefix = "# ";
+            else if (headingSize >= 20f) prefix = "## ";
+            else if (headingSize >= 16f) prefix = "### ";
+            if (isBullet) prefix = "- ";
+
+            sb.Append(prefix);
+            bool isHeading = prefix.StartsWith('#');
+
+            int runPos = pos;
+            while (runPos < paraEnd)
+            {
+                var range = doc.GetRange(runPos, runPos);
+                int moved = range.MoveEnd(TextRangeUnit.CharacterFormat, 1);
+                if (moved == 0 || range.EndPosition <= runPos) { runPos++; continue; }
+                if (range.EndPosition > paraEnd) range.SetRange(runPos, paraEnd);
+
+                var fmt = range.CharacterFormat;
+                range.GetText(TextGetOptions.None, out var runText);
+                runText = runText.TrimEnd('\r');
+
+                bool bold = fmt.Bold == FormatEffect.On && !isHeading;
+                bool italic = fmt.Italic == FormatEffect.On;
+                bool strike = fmt.Strikethrough == FormatEffect.On;
+                string link = range.Link?.Trim('"') ?? "";
+
+                if (!string.IsNullOrEmpty(link))
+                {
+                    sb.Append($"[{runText}]({link})");
+                }
+                else
+                {
+                    if (strike) sb.Append("~~");
+                    if (bold && italic) sb.Append("***");
+                    else if (bold) sb.Append("**");
+                    else if (italic) sb.Append('*');
+
+                    sb.Append(runText);
+
+                    if (bold && italic) sb.Append("***");
+                    else if (bold) sb.Append("**");
+                    else if (italic) sb.Append('*');
+                    if (strike) sb.Append("~~");
+                }
+
+                runPos = range.EndPosition;
+            }
+
+            sb.AppendLine();
+            pos = paraEnd + 1;
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private string GetTaskListAsText()
+    {
+        var lines = _note.Tasks.Select(t => (t.IsDone ? "[x] " : "[ ] ") + t.Text);
+        return string.Join("\n", lines);
+    }
+
+    private string GetTaskListAsMarkdown()
+    {
+        var lines = _note.Tasks.Select(t => (t.IsDone ? "- [x] " : "- [ ] ") + t.Text);
+        return $"# {_note.Title}\n\n" + string.Join("\n", lines);
+    }
+
+    private string GetExportContent(bool asMarkdown)
+    {
+        if (asMarkdown)
+            return _note.NoteType == "tasklist" ? GetTaskListAsMarkdown() : ConvertNoteToMarkdown();
+        return _note.NoteType == "tasklist" ? GetTaskListAsText() : GetPlainText();
+    }
+
+    private void ShowExportMenu()
+    {
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new("\uE8A5", Lang.T("export_markdown"), [], () => ExportAsFile(".md")),
+            new("\uE8A5", Lang.T("export_text"), [], () => ExportAsFile(".txt")),
+            new("\uE8C8", Lang.T("copy_clipboard"), [], () => CopyNoteToClipboard(false)),
+            new("\uE8C8", Lang.T("copy_markdown"), [], () => CopyNoteToClipboard(true)),
+        };
+
+        var flyout = ActionPanel.Create(Lang.T("export"), actions);
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        flyout.ShowAt(MenuButton);
+    }
+
+    private async void ExportAsFile(string preferredExt)
+    {
+        SaveCurrentNote();
+
+        var picker = new Windows.Storage.Pickers.FileSavePicker();
+        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+
+        if (preferredExt == ".md")
+        {
+            picker.FileTypeChoices.Add("Markdown", new[] { ".md" });
+            picker.FileTypeChoices.Add("Text", new[] { ".txt" });
+        }
+        else
+        {
+            picker.FileTypeChoices.Add("Text", new[] { ".txt" });
+            picker.FileTypeChoices.Add("Markdown", new[] { ".md" });
+        }
+        picker.SuggestedFileName = _note.Title;
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var file = await picker.PickSaveFileAsync();
+        if (file == null) return;
+
+        var content = GetExportContent(file.FileType == ".md");
+        await System.IO.File.WriteAllTextAsync(file.Path, content);
+    }
+
+    private void CopyNoteToClipboard(bool asMarkdown)
+    {
+        SaveCurrentNote();
+        var content = GetExportContent(asMarkdown);
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(content);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+    }
+
+    // ── Drag & drop images ────────────────────────────────────
+
+    private void NoteEditor_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = Lang.T("insert");
+        e.DragUIOverride.IsCaptionVisible = true;
+    }
+
+    private async void NoteEditor_Drop(object sender, DragEventArgs e)
+    {
+        if (sender is not RichEditBox editor) return;
+
+        try
+        {
+            // Handle dropped files (images)
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                foreach (var item in items)
+                {
+                    if (item is Windows.Storage.StorageFile file)
+                    {
+                        var ext = file.FileType.ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp")
+                        {
+                            await InsertImageFromFile(editor, file);
+                        }
+                    }
+                }
+            }
+            // Handle dropped bitmap data (e.g. drag from browser)
+            else if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Bitmap))
+            {
+                var streamRef = await e.DataView.GetBitmapAsync();
+                using var origStream = await streamRef.OpenReadAsync();
+                await InsertImageFromStream(editor, origStream);
+            }
+        }
+        catch { }
+    }
+
+    private async Task InsertImageFromFile(RichEditBox editor, Windows.Storage.StorageFile file)
+    {
+        using var fileStream = await file.OpenReadAsync();
+        await InsertImageFromStream(editor, fileStream);
+    }
+
+    private async Task InsertImageFromStream(RichEditBox editor, Windows.Storage.Streams.IRandomAccessStream sourceStream)
+    {
+        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(sourceStream);
+        var w = (int)decoder.PixelWidth;
+        var h = (int)decoder.PixelHeight;
+
+        var softBitmap = await decoder.GetSoftwareBitmapAsync(
+            Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+            Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+
+        var pngStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+            Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, pngStream);
+        encoder.SetSoftwareBitmap(softBitmap);
+        await encoder.FlushAsync();
+
+        const int maxWidth = 340;
+        if (w > maxWidth)
+        {
+            h = (int)(h * ((double)maxWidth / w));
+            w = maxWidth;
+        }
+
+        pngStream.Seek(0);
+        editor.Document.Selection.InsertImage(
+            w, h, 0,
+            Microsoft.UI.Text.VerticalCharacterAlignment.Baseline,
+            "image",
+            pngStream);
+        // pngStream NOT disposed — RichEditBox holds reference for rendering
+
+        editor.Focus(FocusState.Programmatic);
+
+        if (editor == NoteEditor)
+            SaveCurrentNote();
+        else if (editor == TaskNoteEditor)
+            SaveTaskNoteContent();
+        AutoResizeWindow();
+    }
+
+    // ── Screen capture ──────────────────────────────────────────
+
     private void StartScreenCapture(RichEditBox editor)
     {
         ScreenCaptureService.CaptureAndInsert(this, editor, () =>
@@ -1765,6 +2262,9 @@ public sealed partial class NoteWindow : Window
         var tagLabel = _note.Tags.Count > 0
             ? $"{Lang.T("tags")} ({string.Join(", ", _note.Tags)})"
             : Lang.T("tags");
+        var folderLabel = !string.IsNullOrEmpty(_note.Folder)
+            ? $"{Lang.T("folder")} ({_note.Folder})"
+            : Lang.T("folder");
 
         var autoResizeLabel = _autoResize ? Lang.T("disable_auto_resize") : Lang.T("auto_resize");
         var autoResizeGlyph = _autoResize ? "\uE73F" : "\uE740";
@@ -1779,6 +2279,7 @@ public sealed partial class NoteWindow : Window
             }),
             new("\uE823", reminderLabel, [], () => ShowNoteReminderMenu()),
             new("\uE8EC", tagLabel, [], () => ShowTagMenu()),
+            new("\uE8B7", folderLabel, [], () => ShowFolderMenu()),
             new(autoResizeGlyph, autoResizeLabel, [], () =>
             {
                 _autoResize = !_autoResize;
@@ -1799,6 +2300,7 @@ public sealed partial class NoteWindow : Window
                 !string.IsNullOrEmpty(_note.AttachMode)
                     ? $"{Lang.T("attached_to")} {GetAttachTargetLabel()}"
                     : Lang.T("attach_to_window"), [], () => ShowAttachMenu()),
+            new("\uE8A5", Lang.T("export"), [], () => ShowExportMenu()),
             new("\uE7B8", _note.IsArchived ? Lang.T("unarchive") : Lang.T("archive"), [], () =>
             {
                 _notesManager.ToggleArchive(_note.Id);
@@ -2160,6 +2662,153 @@ public sealed partial class NoteWindow : Window
                 {
                     _note.Tags.Add(newTag);
                     _notesManager.UpdateNoteTags(_note.Id, _note.Tags);
+                    NoteChanged?.Invoke();
+                }
+                flyout.Hide();
+                args.Handled = true;
+            }
+        };
+        panel.Children.Add(addBox);
+
+        flyout.Content = panel;
+        flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        flyout.ShowAt(MenuButton);
+    }
+
+    private void ShowFolderMenu()
+    {
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(220, 280);
+
+        var panel = new StackPanel { Spacing = 0 };
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("folder")));
+        panel.Children.Add(ActionPanel.CreateSeparator());
+
+        var allFolders = _notesManager.GetAllFolders();
+        var currentFolder = _note.Folder ?? "";
+
+        // "None" option to remove from folder
+        var noneBtn = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 7, 10, 7),
+            CornerRadius = new CornerRadius(5),
+        };
+        var noneGrid = new Grid { ColumnSpacing = 8 };
+        noneGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        noneGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        noneGrid.Children.Add(new TextBlock
+        {
+            Text = Lang.T("no_folder"),
+            FontSize = 13,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        if (string.IsNullOrEmpty(currentFolder))
+        {
+            var check = new FontIcon
+            {
+                Glyph = "\uE73E", FontSize = 14,
+                Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(check, 1);
+            noneGrid.Children.Add(check);
+        }
+        noneBtn.Content = noneGrid;
+        noneBtn.Click += (_, _) =>
+        {
+            _notesManager.UpdateNoteFolder(_note.Id, null);
+            _note.Folder = null;
+            NoteChanged?.Invoke();
+            flyout.Hide();
+        };
+        panel.Children.Add(noneBtn);
+
+        // Existing folders
+        foreach (var folder in allFolders)
+        {
+            var folderName = folder;
+            var isSelected = string.Equals(currentFolder, folder, StringComparison.OrdinalIgnoreCase);
+            var btn = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 7, 10, 7),
+                CornerRadius = new CornerRadius(5),
+            };
+
+            var grid = new Grid { ColumnSpacing = 8 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var icon = new FontIcon
+            {
+                Glyph = "\uE8B7", FontSize = 12,
+                Opacity = 0.7,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(icon, 0);
+
+            var text = new TextBlock
+            {
+                Text = folder, FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(text, 1);
+
+            grid.Children.Add(icon);
+            grid.Children.Add(text);
+
+            if (isSelected)
+            {
+                var check = new FontIcon
+                {
+                    Glyph = "\uE73E", FontSize = 14,
+                    Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(check, 2);
+                grid.Children.Add(check);
+            }
+
+            btn.Content = grid;
+            btn.Click += (_, _) =>
+            {
+                _notesManager.UpdateNoteFolder(_note.Id, folderName);
+                _note.Folder = folderName;
+                NoteChanged?.Invoke();
+                flyout.Hide();
+            };
+            panel.Children.Add(btn);
+        }
+
+        // New folder input
+        panel.Children.Add(ActionPanel.CreateSeparator());
+        var addBox = new TextBox
+        {
+            PlaceholderText = Lang.T("new_folder"),
+            FontSize = 12,
+            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(2)
+        };
+        addBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter)
+            {
+                var newFolder = addBox.Text.Trim();
+                if (!string.IsNullOrEmpty(newFolder))
+                {
+                    _notesManager.UpdateNoteFolder(_note.Id, newFolder);
+                    _note.Folder = newFolder;
                     NoteChanged?.Invoke();
                 }
                 flyout.Hide();

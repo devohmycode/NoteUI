@@ -10,6 +10,7 @@ internal sealed class HotkeyService : IDisposable
     // Hotkey IDs
     public const int HOTKEY_SHOW = 1;
     public const int HOTKEY_NEW_NOTE = 2;
+    public const int HOTKEY_PASTE_NOTE = 3;
 
     [Flags]
     public enum Modifiers : uint
@@ -77,6 +78,7 @@ internal sealed class HotkeyService : IDisposable
     [
         new("show", Lang.T("shortcut_show"), Modifiers.Ctrl | Modifiers.Alt, 0x4E), // Ctrl+Alt+N
         new("new_note", Lang.T("shortcut_new_note"), Modifiers.Ctrl, 0x4E), // Ctrl+N
+        new("paste_note", Lang.T("shortcut_paste_note"), Modifiers.Ctrl | Modifiers.Alt, 0x56), // Ctrl+Alt+V
         new("flyout_back", Lang.T("shortcut_flyout_back"), Modifiers.Ctrl, 0x50), // Ctrl+P
     ];
 

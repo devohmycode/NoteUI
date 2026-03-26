@@ -86,6 +86,9 @@
                      Background="Transparent"
                      CornerRadius="0"
                      Padding="12,4"
+                     AllowDrop="True"
+                     DragOver="NoteEditor_DragOver"
+                     Drop="NoteEditor_Drop"
                      TextChanged="NoteEditor_TextChanged">
             <RichEditBox.Resources>
                 <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
@@ -114,6 +117,9 @@
                              CornerRadius="0"
                              Padding="12,8"
                              MinHeight="80"
+                             AllowDrop="True"
+                             DragOver="NoteEditor_DragOver"
+                             Drop="NoteEditor_Drop"
                              TextChanged="TaskNoteEditor_TextChanged">
                     <RichEditBox.Resources>
                         <SolidColorBrush x:Key="TextControlBackground" Color="Transparent"/>
