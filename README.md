@@ -16,6 +16,9 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - Inline title editing
 - Auto-save on every change
 - Keyboard-accessible note cards (Tab to focus, Enter to open)
+- Sort notes by recent, creation date, alphabetical, color, or size
+- Compact card view toggle
+- Clipboard monitor: automatically create a note from clipboard content
 
 ### Task Lists
 - Dedicated task list note type with checkboxes
@@ -93,6 +96,9 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - Global system hotkeys (Ctrl+Alt+N to show, Ctrl+N for new note)
 - Slash commands toggle (enable/disable)
 - Always-on-top (pin) for any window
+- Start with Windows and start minimized to tray
+- Font selection: Segoe UI, Geist, Inter, JetBrains Mono
+- Note style: title bar or full color
 
 ### UI & Animations
 - Borderless custom window chrome with shadow
@@ -101,6 +107,13 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - Card shadows for depth
 - System tray icon (close to tray, reopen from tray)
 - Nested flyout navigation with configurable keyboard shortcut (Ctrl+P default)
+- About panel with version info, GitHub and Buy Me a Coffee links
+
+### Auto-Update
+- Check for updates from the About panel
+- Automatic detection of CPU/CUDA build variant
+- In-app download with progress bar and one-click install
+- Release notes link via GitHub Releases
 
 ## Installation
 
