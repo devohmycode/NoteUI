@@ -6,19 +6,6 @@
     Title="NoteUI Widget">
     <Grid x:Name="RootGrid" Background="Transparent">
         <StackPanel x:Name="ButtonPanel" Orientation="Horizontal"
-                    VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="0">
-            <Button x:Name="ClipboardButton"
-                    Padding="4" MinWidth="28" MinHeight="26" MaxWidth="28" MaxHeight="26"
-                    Background="Transparent" BorderThickness="0" CornerRadius="4"
-                    Click="ClipboardButton_Click">
-                <FontIcon Glyph="&#xE16F;" FontSize="13"/>
-            </Button>
-            <Button x:Name="FavoritesButton"
-                    Padding="4" MinWidth="28" MinHeight="26" MaxWidth="28" MaxHeight="26"
-                    Background="Transparent" BorderThickness="0" CornerRadius="4"
-                    Click="FavoritesButton_Click">
-                <FontIcon Glyph="&#xE734;" FontSize="13"/>
-            </Button>
-        </StackPanel>
+                    VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="0"/>
     </Grid>
 </Window>

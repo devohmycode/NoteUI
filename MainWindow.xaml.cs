@@ -2054,7 +2054,18 @@ public sealed partial class MainWindow : Window
                 AppSettings.SaveCompactCards(enabled);
                 RefreshCurrentView();
             },
-            onShowWidget: () => ToggleClipboardWidget(),
+            onShowWidget: flyout =>
+            {
+                ActionPanel.ShowWidgetSubPanel(flyout,
+                    onToggle: ToggleClipboardWidget,
+                    modules: AppSettings.LoadWidgetModules(),
+                    isEnabled: _taskbarWidget != null,
+                    onModulesChanged: modules =>
+                    {
+                        AppSettings.SaveWidgetModules(modules);
+                        _taskbarWidget?.BuildButtons();
+                    });
+            },
             onQuit: ExitApplication);
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
@@ -3374,7 +3385,7 @@ public sealed partial class MainWindow : Window
         };
         _taskbarWidget.OpenNoteRequested += noteId =>
             DispatcherQueue.TryEnqueue(() => { this.Activate(); OpenNote(noteId); });
-        _taskbarWidget.Activate();
+        _taskbarWidget.AppWindow.Show(activateWindow: false);
         AppSettings.SaveWidgetEnabled(true);
     }
 

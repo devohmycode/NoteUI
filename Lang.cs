@@ -240,6 +240,13 @@ public static class Lang
             ["no_snippets"] = "No snippets",
             ["clipboard_widget"] = "Clipboard widget",
             ["widget"] = "Widget",
+            ["widget_clipboard"] = "Clipboard",
+            ["widget_notes"] = "Notes",
+            ["widget_favorites"] = "Favorites",
+            ["widget_folders"] = "Folders",
+            ["widget_snippets"] = "Snippets",
+            ["widget_enable"] = "Enable widget",
+            ["widget_disable"] = "Disable widget",
 
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Select a zone",
@@ -635,6 +642,13 @@ public static class Lang
             ["no_snippets"] = "Aucun snippet",
             ["clipboard_widget"] = "Widget presse-papiers",
             ["widget"] = "Widget",
+            ["widget_clipboard"] = "Presse-papiers",
+            ["widget_notes"] = "Notes",
+            ["widget_favorites"] = "Favoris",
+            ["widget_folders"] = "Dossiers",
+            ["widget_snippets"] = "Snippets",
+            ["widget_enable"] = "Activer le widget",
+            ["widget_disable"] = "Désactiver le widget",
 
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Sélectionnez une zone",

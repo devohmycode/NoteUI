@@ -204,7 +204,7 @@ public static class ActionPanel
         Action<bool>? onStartWithWindowsToggled = null, Action<bool>? onStartMinimizedToggled = null,
         string? currentSort = null, Action<string>? onSortSelected = null,
         bool compactCards = false, Action<bool>? onCompactToggled = null,
-        Action? onShowWidget = null,
+        Action<Flyout>? onShowWidget = null,
         Action? onQuit = null)
     {
         var flyout = new Flyout();
@@ -292,12 +292,7 @@ public static class ActionPanel
         if (onShowWidget != null)
         {
             panel.Children.Add(CreateSeparator());
-            var widgetAction = new ActionItem("\uE16F", Lang.T("widget"), [], () => { });
-            var widgetBtn = CreateButton(widgetAction, () =>
-            {
-                onShowWidget();
-                flyout.Hide();
-            });
+            var widgetBtn = CreateNavigateButton(Lang.T("widget"), () => onShowWidget(flyout), "\uE16F");
             widgetBtn.Tag = Lang.T("widget") + " Widget";
             allButtons.Add(widgetBtn);
             panel.Children.Add(widgetBtn);
@@ -836,6 +831,79 @@ public static class ActionPanel
             };
             panel.Children.Add(desc);
         }
+
+        flyout.Content = panel;
+    }
+
+    public static void ShowWidgetSubPanel(Flyout flyout, Action onToggle,
+        Dictionary<string, bool> modules, bool isEnabled,
+        Action<Dictionary<string, bool>> onModulesChanged)
+    {
+        var panel = CreateSubPanelWithHeader(Lang.T("widget"), () => flyout.Hide());
+
+        var moduleDefs = new (string Key, string Glyph, string LangKey)[]
+        {
+            ("clipboard", "\uE16F", "widget_clipboard"),
+            ("notes", "\uE70B", "widget_notes"),
+            ("favorites", "\uE734", "widget_favorites"),
+            ("folders", "\uE8B7", "widget_folders"),
+            ("snippets", "\uE943", "widget_snippets"),
+        };
+
+        foreach (var (key, glyph, langKey) in moduleDefs)
+        {
+            var k = key;
+            var isOn = modules.TryGetValue(k, out var v) && v;
+
+            var row = new Grid { Margin = new Thickness(8, 2, 8, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var icon = new FontIcon { Glyph = glyph, FontSize = 13, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(icon, 0);
+            row.Children.Add(icon);
+
+            var label = new TextBlock
+            {
+                Text = Lang.T(langKey),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            Grid.SetColumn(label, 1);
+            row.Children.Add(label);
+
+            var toggle = new ToggleSwitch
+            {
+                IsOn = isOn,
+                MinWidth = 0,
+                MinHeight = 0,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            toggle.Toggled += (_, _) =>
+            {
+                modules[k] = toggle.IsOn;
+                onModulesChanged(modules);
+            };
+            Grid.SetColumn(toggle, 2);
+            row.Children.Add(toggle);
+
+            panel.Children.Add(row);
+        }
+
+        panel.Children.Add(CreateSeparator());
+
+        var toggleLabel = isEnabled ? Lang.T("widget_disable") : Lang.T("widget_enable");
+        var toggleBtn = CreateButton(
+            new ActionItem(isEnabled ? "\uE711" : "\uE16F", toggleLabel, [], () => { }, IsDestructive: isEnabled),
+            () =>
+            {
+                onToggle();
+                // Rebuild panel with updated state
+                ShowWidgetSubPanel(flyout, onToggle, modules, !isEnabled, onModulesChanged);
+            });
+        panel.Children.Add(toggleBtn);
 
         flyout.Content = panel;
     }

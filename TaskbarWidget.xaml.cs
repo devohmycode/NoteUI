@@ -27,7 +27,8 @@ public sealed partial class TaskbarWidget : Window
     private IDisposable? _acrylicController;
     private SystemBackdropConfiguration? _configSource;
 
-    private const int WindowWidth = 64;
+    private Dictionary<string, bool> _modules;
+
     private const int WindowHeight = 30;
     private const int RightPadding = 6;
     private const int FallbackRightPadding = 140;
@@ -45,6 +46,7 @@ public sealed partial class TaskbarWidget : Window
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_HIDEWINDOW = 0x0080;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOZORDER = 0x0004;
@@ -64,6 +66,9 @@ public sealed partial class TaskbarWidget : Window
         _clipboardHistory = clipboardHistory;
         _snippetManager = snippetManager;
         _notesManager = notesManager;
+        _modules = AppSettings.LoadWidgetModules();
+
+        BuildButtons();
 
         _hWnd = WindowNative.GetWindowHandle(this);
 
@@ -112,6 +117,43 @@ public sealed partial class TaskbarWidget : Window
         DispatcherQueue.TryEnqueue(EnsureTaskbarPlacement);
     }
 
+    // ── Dynamic button building ─────────────────────────────────
+
+    public void BuildButtons()
+    {
+        ButtonPanel.Children.Clear();
+        _modules = AppSettings.LoadWidgetModules();
+
+        var moduleDefinitions = new (string Key, string Glyph, Action<Button> OnClick)[]
+        {
+            ("clipboard", "\uE16F", btn => { _activeHwndBeforeFlyout = GetForegroundWindow(); BuildClipboardFlyout().ShowAt(btn); }),
+            ("notes", "\uE70B", btn => { BuildNotesFlyout().ShowAt(btn); }),
+            ("favorites", "\uE734", btn => { BuildFavoritesFlyout().ShowAt(btn); }),
+            ("folders", "\uE8B7", btn => { BuildFoldersFlyout().ShowAt(btn); }),
+            ("snippets", "\uE943", btn => { _activeHwndBeforeFlyout = GetForegroundWindow(); BuildSnippetsFlyout().ShowAt(btn); }),
+        };
+
+        foreach (var (key, glyph, onClick) in moduleDefinitions)
+        {
+            if (!_modules.TryGetValue(key, out var enabled) || !enabled) continue;
+
+            var btn = new Button
+            {
+                Padding = new Thickness(4),
+                MinWidth = 28, MinHeight = 26, MaxWidth = 28, MaxHeight = 26,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(4),
+                Content = new FontIcon { Glyph = glyph, FontSize = 13 },
+            };
+            var capturedBtn = btn;
+            btn.Click += (_, _) => onClick(capturedBtn);
+            ButtonPanel.Children.Add(btn);
+        }
+    }
+
+    private int GetWidgetWidth() => Math.Max(28, 28 * ButtonPanel.Children.Count);
+
     // ── Taskbar placement ────────────────────────────────────────
 
     private void EnsureTaskbarPlacement()
@@ -132,11 +174,19 @@ public sealed partial class TaskbarWidget : Window
         if (taskbarWidth <= 0 || taskbarHeight <= 0)
             return;
 
+        // Hide when a fullscreen app is active
+        if (IsFullscreenAppActive())
+        {
+            SetWindowPos(_hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+            return;
+        }
+
         var dpiScale = GetDpiForWindow(_taskbarHandle) / 96.0;
         if (dpiScale <= 0)
             dpiScale = 1.0;
 
-        var widthPx = Math.Max(24, (int)Math.Round(WindowWidth * dpiScale));
+        var widthPx = Math.Max(24, (int)Math.Round(GetWidgetWidth() * dpiScale));
         var heightPx = Math.Max(10, (int)Math.Round(WindowHeight * dpiScale));
 
         try
@@ -154,6 +204,24 @@ public sealed partial class TaskbarWidget : Window
             taskbarRect.Left + left, taskbarRect.Top + top,
             widthPx, heightPx,
             SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
+    private bool IsFullscreenAppActive()
+    {
+        var fgHwnd = GetForegroundWindow();
+        if (fgHwnd == IntPtr.Zero || fgHwnd == _hWnd) return false;
+
+        if (!GetWindowRect(fgHwnd, out var wndRect)) return false;
+
+        // Get the monitor that contains the foreground window
+        var monitor = MonitorFromWindow(fgHwnd, MONITOR_DEFAULTTONEAREST);
+        var monitorInfo = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo)) return false;
+
+        // Fullscreen = window covers the entire monitor
+        var screen = monitorInfo.rcMonitor;
+        return wndRect.Left <= screen.Left && wndRect.Top <= screen.Top
+            && wndRect.Right >= screen.Right && wndRect.Bottom >= screen.Bottom;
     }
 
     private int ComputeLeftOffset(RECT taskbarRect, int taskbarWidth, int widthPx)
@@ -227,22 +295,9 @@ public sealed partial class TaskbarWidget : Window
         SetWindowLongPtr(_hWnd, GWL_EXSTYLE, (IntPtr)exStyle);
     }
 
-    // ── Button handlers ──────────────────────────────────────────
-
-    private void ClipboardButton_Click(object sender, RoutedEventArgs e)
-    {
-        _activeHwndBeforeFlyout = GetForegroundWindow();
-        var flyout = BuildClipboardFlyout();
-        flyout.ShowAt(ClipboardButton);
-    }
-
-    private void FavoritesButton_Click(object sender, RoutedEventArgs e)
-    {
-        var flyout = BuildFavoritesFlyout();
-        flyout.ShowAt(FavoritesButton);
-    }
-
     // ── Clipboard flyout ─────────────────────────────────────────
+
+    public event Action<string>? OpenNoteRequested;
 
     private Flyout BuildClipboardFlyout()
     {
@@ -329,9 +384,7 @@ public sealed partial class TaskbarWidget : Window
         return flyout;
     }
 
-    // ── Snippet flyout ───────────────────────────────────────────
-
-    public event Action<string>? OpenNoteRequested;
+    // ── Favorites flyout ─────────────────────────────────────────
 
     private Flyout BuildFavoritesFlyout()
     {
@@ -378,6 +431,264 @@ public sealed partial class TaskbarWidget : Window
                     OpenNoteRequested?.Invoke(noteId);
                 };
                 panel.Children.Add(btn);
+            }
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 400
+        };
+
+        flyout.Content = scrollViewer;
+        return flyout;
+    }
+
+    // ── Notes flyout ─────────────────────────────────────────────
+
+    private Flyout BuildNotesFlyout()
+    {
+        var flyout = new Flyout { ShouldConstrainToRootBounds = false };
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(260, 340);
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("notes"),
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Padding = new Thickness(10, 8, 10, 4),
+            Opacity = 0.6
+        });
+        panel.Children.Add(CreateDivider());
+
+        var recentNotes = _notesManager?.Notes
+            .Where(n => !n.IsArchived)
+            .OrderByDescending(n => n.UpdatedAt)
+            .Take(15)
+            .ToList() ?? [];
+
+        if (recentNotes.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("no_notes_found"),
+                FontSize = 12,
+                Opacity = 0.4,
+                Padding = new Thickness(10, 8, 10, 8)
+            });
+        }
+        else
+        {
+            foreach (var note in recentNotes)
+            {
+                var noteId = note.Id;
+                var title = string.IsNullOrWhiteSpace(note.Title) ? Lang.T("untitled") : note.Title;
+                var btn = CreateFlyoutButton(title, "\uE70B");
+                btn.Click += (_, _) =>
+                {
+                    flyout.Hide();
+                    OpenNoteRequested?.Invoke(noteId);
+                };
+                panel.Children.Add(btn);
+            }
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 400
+        };
+
+        flyout.Content = scrollViewer;
+        return flyout;
+    }
+
+    // ── Folders flyout ───────────────────────────────────────────
+
+    private Flyout BuildFoldersFlyout()
+    {
+        var flyout = new Flyout { ShouldConstrainToRootBounds = false };
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(260, 340);
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("folders"),
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Padding = new Thickness(10, 8, 10, 4),
+            Opacity = 0.6
+        });
+        panel.Children.Add(CreateDivider());
+
+        var folders = _notesManager?.GetAllFolders() ?? [];
+
+        if (folders.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("no_folders"),
+                FontSize = 12,
+                Opacity = 0.4,
+                Padding = new Thickness(10, 8, 10, 8)
+            });
+        }
+        else
+        {
+            foreach (var folder in folders)
+            {
+                // Folder header
+                panel.Children.Add(new TextBlock
+                {
+                    Text = folder,
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Padding = new Thickness(10, 6, 10, 2),
+                    Opacity = 0.5
+                });
+
+                var notesInFolder = _notesManager?.Notes
+                    .Where(n => !n.IsArchived && string.Equals(n.Folder, folder, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(n => n.UpdatedAt)
+                    .ToList() ?? [];
+
+                if (notesInFolder.Count == 0)
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = Lang.T("no_notes_folder", folder),
+                        FontSize = 12,
+                        Opacity = 0.4,
+                        Padding = new Thickness(18, 4, 10, 4)
+                    });
+                }
+                else
+                {
+                    foreach (var note in notesInFolder)
+                    {
+                        var noteId = note.Id;
+                        var title = string.IsNullOrWhiteSpace(note.Title) ? Lang.T("untitled") : note.Title;
+                        var btn = CreateFlyoutButton(title, "\uE70B");
+                        btn.Padding = new Thickness(18, 6, 10, 6);
+                        btn.Click += (_, _) =>
+                        {
+                            flyout.Hide();
+                            OpenNoteRequested?.Invoke(noteId);
+                        };
+                        panel.Children.Add(btn);
+                    }
+                }
+            }
+        }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 400
+        };
+
+        flyout.Content = scrollViewer;
+        return flyout;
+    }
+
+    // ── Snippets flyout ──────────────────────────────────────────
+
+    private Flyout BuildSnippetsFlyout()
+    {
+        var flyout = new Flyout { ShouldConstrainToRootBounds = false };
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(260, 340);
+
+        var panel = new StackPanel { Spacing = 0 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = Lang.T("snippet"),
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Padding = new Thickness(10, 8, 10, 4),
+            Opacity = 0.6
+        });
+        panel.Children.Add(CreateDivider());
+
+        var categories = _snippetManager.GetAllCategories();
+
+        if (categories.Count == 0 && _snippetManager.Snippets.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("no_snippets"),
+                FontSize = 12,
+                Opacity = 0.4,
+                Padding = new Thickness(10, 8, 10, 8)
+            });
+        }
+        else
+        {
+            // Snippets with categories
+            foreach (var category in categories)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = category,
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Padding = new Thickness(10, 6, 10, 2),
+                    Opacity = 0.5
+                });
+
+                var snippetsInCat = _snippetManager.Snippets
+                    .Where(s => string.Equals(s.Category, category, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var snippet in snippetsInCat)
+                {
+                    var s = snippet;
+                    var label = $"{s.Keyword}: {(s.Content.Length > 40 ? s.Content[..40] + "..." : s.Content)}";
+                    var btn = CreateFlyoutButton(label, "\uE943");
+                    btn.Click += (_, _) =>
+                    {
+                        flyout.Hide();
+                        PasteToActiveWindow(() =>
+                        {
+                            var dp = new DataPackage();
+                            dp.SetText(s.Content);
+                            Clipboard.SetContent(dp);
+                        });
+                    };
+                    panel.Children.Add(btn);
+                }
+            }
+
+            // Snippets without categories
+            var uncategorized = _snippetManager.Snippets
+                .Where(s => string.IsNullOrEmpty(s.Category))
+                .ToList();
+
+            if (uncategorized.Count > 0)
+            {
+                foreach (var snippet in uncategorized)
+                {
+                    var s = snippet;
+                    var label = $"{s.Keyword}: {(s.Content.Length > 40 ? s.Content[..40] + "..." : s.Content)}";
+                    var btn = CreateFlyoutButton(label, "\uE943");
+                    btn.Click += (_, _) =>
+                    {
+                        flyout.Hide();
+                        PasteToActiveWindow(() =>
+                        {
+                            var dp = new DataPackage();
+                            dp.SetText(s.Content);
+                            Clipboard.SetContent(dp);
+                        });
+                    };
+                    panel.Children.Add(btn);
+                }
             }
         }
 
@@ -585,6 +896,14 @@ public sealed partial class TaskbarWidget : Window
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
@@ -592,6 +911,15 @@ public sealed partial class TaskbarWidget : Window
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WINDOWPOS

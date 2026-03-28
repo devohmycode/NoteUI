@@ -666,6 +666,40 @@ public static class AppSettings
         return null;
     }
 
+    public static void SaveWidgetModules(Dictionary<string, bool> modules)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetModules"] = modules });
+    }
+
+    public static Dictionary<string, bool> LoadWidgetModules()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("widgetModules", out var prop))
+                {
+                    var result = new Dictionary<string, bool>();
+                    foreach (var p in prop.EnumerateObject())
+                        result[p.Name] = p.Value.GetBoolean();
+                    return result;
+                }
+            }
+        }
+        catch { }
+        // Default: clipboard and favorites enabled
+        return new Dictionary<string, bool>
+        {
+            ["clipboard"] = true,
+            ["notes"] = false,
+            ["favorites"] = true,
+            ["folders"] = false,
+            ["snippets"] = false,
+        };
+    }
+
     public static void SaveWidgetEnabled(bool enabled)
     {
         MergeAndSaveSettings(new Dictionary<string, object> { ["widgetEnabled"] = enabled });
