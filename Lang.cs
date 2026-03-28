@@ -190,7 +190,7 @@ public static class Lang
             ["close_tab"] = "Close tab",
             ["open"] = "Open",
             ["save_as"] = "Save as",
-            ["save_to_notes"] = "Save to notes",
+            ["save_to_notes"] = "Save as new note",
             ["edit_menu"] = "Edit",
             ["undo"] = "Undo",
             ["redo"] = "Redo",
@@ -208,6 +208,11 @@ public static class Lang
             ["paragraph_style"] = "Paragraph style",
             ["char_count_one"] = "1 character",
             ["char_count_many"] = "{0} characters",
+            ["word_count"] = "{0} words",
+            ["word_count_one"] = "1 word",
+            ["open_note"] = "Open a note",
+            ["focus_mode"] = "Focus mode",
+            ["exit_focus_mode"] = "Exit focus mode",
 
             // ── Snippet ───────────────────────────────────────────
             ["snippet"] = "Snippet",
@@ -562,7 +567,7 @@ public static class Lang
             ["close_tab"] = "Fermer l'onglet",
             ["open"] = "Ouvrir",
             ["save_as"] = "Enregistrer sous",
-            ["save_to_notes"] = "Enregistrer dans les notes",
+            ["save_to_notes"] = "Enregistrer en tant que nouvelle note",
             ["edit_menu"] = "Modifier",
             ["undo"] = "Annuler",
             ["redo"] = "Rétablir",
@@ -580,6 +585,11 @@ public static class Lang
             ["paragraph_style"] = "Style de paragraphe",
             ["char_count_one"] = "1 caractère",
             ["char_count_many"] = "{0} caractères",
+            ["word_count"] = "{0} mots",
+            ["word_count_one"] = "1 mot",
+            ["open_note"] = "Ouvrir une note",
+            ["focus_mode"] = "Mode focus",
+            ["exit_focus_mode"] = "Quitter le mode focus",
 
             // ── Snippet ───────────────────────────────────────────
             ["snippet"] = "Snippet",

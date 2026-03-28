@@ -635,6 +635,7 @@ public class NoteEntry
     {
         var result = new System.Text.StringBuilder();
         int depth = 0;
+        bool hidden = false;
         int i = 0;
         while (i < rtf.Length)
         {
@@ -650,7 +651,7 @@ public class NoteEntry
                     if (i + 2 < rtf.Length &&
                         byte.TryParse(rtf.AsSpan(i + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out var b))
                     {
-                        result.Append((char)b);
+                        if (!hidden) result.Append((char)b);
                         i += 3;
                     }
                     else i++;
@@ -661,6 +662,17 @@ public class NoteEntry
                     var word = new System.Text.StringBuilder();
                     while (i < rtf.Length && char.IsLetter(rtf[i])) { word.Append(rtf[i]); i++; }
                     var w = word.ToString();
+
+                    // Track hidden text (\v = hidden on, \v0 = hidden off)
+                    if (w == "v")
+                    {
+                        // Check for \v0 (hidden off) vs \v (hidden on)
+                        if (i < rtf.Length && rtf[i] == '0') { hidden = false; i++; }
+                        else hidden = true;
+                        if (i < rtf.Length && rtf[i] == ' ') i++;
+                        continue;
+                    }
+
                     if (w == "par" || w == "line") result.Append('\n');
                     if (w == "tab") result.Append(' ');
                     if (i < rtf.Length && (rtf[i] == '-' || char.IsDigit(rtf[i])))
@@ -672,12 +684,14 @@ public class NoteEntry
                 }
                 continue;
             }
-            if (depth <= 1 && c >= ' ')
+            if (depth <= 1 && c >= ' ' && !hidden)
                 result.Append(c);
             i++;
         }
         // Collapse multiple spaces and clean up bullet list artifacts
         var text = result.ToString();
+        // Remove zero-width spaces used as link delimiters
+        text = text.Replace("\u200B", "");
         var lines = text.Split('\n');
         for (int j = 0; j < lines.Length; j++)
             lines[j] = System.Text.RegularExpressions.Regex.Replace(lines[j].Trim(), @"\s{2,}", " ");

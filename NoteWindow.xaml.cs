@@ -51,6 +51,13 @@ public sealed partial class NoteWindow : Window
     private bool _isVoiceRecording;
     private AiManager? _aiManager;
 
+    // Image drag-out to Explorer
+    private bool _imageDragPending;
+    private Windows.Foundation.Point _imageDragStart;
+    private RichEditBox? _imageDragEditor;
+    private int _imageDragPosition = -1;
+    private string? _tempDragImagePath;
+
     public string NoteId => _note.Id;
     public bool IsCompact => _isCompact;
     public int PreCompactWidth => _preCompactWidth;
@@ -121,7 +128,6 @@ public sealed partial class NoteWindow : Window
         _note = note;
 
         _noteStyle = AppSettings.LoadNoteStyle();
-        ApplyNoteColor(note.Color);
         TitleText.Text = note.Title;
         LockIcon.Glyph = note.IsLocked ? "\uE785" : "\uE72E";
         ToolTipService.SetToolTip(LockButton, Lang.T("lock_note"));
@@ -143,12 +149,39 @@ public sealed partial class NoteWindow : Window
         }
         else
         {
-            LoadNote();
+            // Inline LoadNote without resetting _suppressTextChanged
+            _suppressTextChanged = true;
+            if (string.IsNullOrEmpty(_note.Content))
+                NoteEditor.Document.SetText(TextSetOptions.None, "");
+            else if (_note.Content.StartsWith("{\\rtf", StringComparison.Ordinal))
+                NoteEditor.Document.SetText(TextSetOptions.FormatRtf, _note.Content);
+            else
+                NoteEditor.Document.SetText(TextSetOptions.None, _note.Content);
         }
+
+        // _suppressTextChanged stays true — ApplyNoteColor triggers TextChanged
+        ApplyNoteColor(note.Color);
+
+        // Repair links once editor is in the visual tree (Loaded fires after rendering)
+        NoteEditor.Loaded += NoteEditor_RepairOnLoad;
 
         // Intercept Ctrl+Click on note links BEFORE RichEditBox opens the browser
         NoteEditor.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler(NoteEditor_PointerPressedForLink), true);
+
+        // Drag images OUT of editor to Explorer
+        NoteEditor.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(Editor_PointerPressedForImageDrag), true);
+        NoteEditor.AddHandler(UIElement.PointerMovedEvent,
+            new PointerEventHandler(Editor_PointerMovedForImageDrag), true);
+        NoteEditor.AddHandler(UIElement.PointerReleasedEvent,
+            new PointerEventHandler(Editor_PointerReleasedForImageDrag), true);
+        TaskNoteEditor.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(Editor_PointerPressedForImageDrag), true);
+        TaskNoteEditor.AddHandler(UIElement.PointerMovedEvent,
+            new PointerEventHandler(Editor_PointerMovedForImageDrag), true);
+        TaskNoteEditor.AddHandler(UIElement.PointerReleasedEvent,
+            new PointerEventHandler(Editor_PointerReleasedForImageDrag), true);
 
         this.Closed += (_, _) =>
         {
@@ -439,6 +472,15 @@ public sealed partial class NoteWindow : Window
         MenuIcon.Glyph = _note.IsFavorite ? "\uE735" : "\uE712";
     }
 
+    private void NoteEditor_RepairOnLoad(object sender, RoutedEventArgs e)
+    {
+        NoteEditor.Loaded -= NoteEditor_RepairOnLoad;
+        _suppressTextChanged = true;
+        NoteLinkHelper.RepairHiddenLinks(NoteEditor, _notesManager);
+        _suppressTextChanged = false;
+        NoteEditor.Focus(FocusState.Programmatic);
+    }
+
     // ── Note loading/saving ────────────────────────────────────
 
     private void LoadNote()
@@ -454,11 +496,20 @@ public sealed partial class NoteWindow : Window
         NoteEditor.Focus(FocusState.Programmatic);
     }
 
-    public void ReloadFromDisk()
+    public void ReloadFromDisk(bool focus = true)
     {
         _note = _notesManager.Notes.FirstOrDefault(n => n.Id == _note.Id) ?? _note;
-        LoadNote();
+        _suppressTextChanged = true;
+        if (string.IsNullOrEmpty(_note.Content))
+            NoteEditor.Document.SetText(TextSetOptions.None, "");
+        else if (_note.Content.StartsWith("{\\rtf", StringComparison.Ordinal))
+            NoteEditor.Document.SetText(TextSetOptions.FormatRtf, _note.Content);
+        else
+            NoteEditor.Document.SetText(TextSetOptions.None, _note.Content);
+        if (focus) NoteEditor.Focus(FocusState.Programmatic);
         ApplyNoteColor(_note.Color);
+        NoteLinkHelper.RepairHiddenLinks(NoteEditor, _notesManager);
+        _suppressTextChanged = false;
     }
 
     private void SaveCurrentNote()
@@ -477,11 +528,14 @@ public sealed partial class NoteWindow : Window
         _note = updatedNote;
         if (!changed) return;
         TitleText.Text = _note.Title;
+        _suppressTextChanged = true;
         if (_note.NoteType == "tasklist")
             LoadTaskNoteContent();
         else
             LoadNote();
         ApplyNoteColor(_note.Color);
+        NoteLinkHelper.RepairHiddenLinks(NoteEditor, _notesManager);
+        _suppressTextChanged = false;
     }
 
     // ── Task note (free-form text in tasklist mode) ─────────────
@@ -2035,6 +2089,192 @@ public sealed partial class NoteWindow : Window
         else if (editor == TaskNoteEditor)
             SaveTaskNoteContent();
         AutoResizeWindow();
+    }
+
+    // ── Drag images out to Explorer ────────────────────────────
+
+    private void Editor_PointerPressedForImageDrag(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not RichEditBox editor) return;
+        _imageDragPending = false;
+        _imageDragEditor = null;
+        _imageDragPosition = -1;
+
+        if (!e.GetCurrentPoint(editor).Properties.IsLeftButtonPressed) return;
+
+        var pos = FindImageAtCursor(editor);
+        if (pos >= 0)
+        {
+            _imageDragPending = true;
+            _imageDragStart = e.GetCurrentPoint(editor).Position;
+            _imageDragEditor = editor;
+            _imageDragPosition = pos;
+        }
+    }
+
+    private async void Editor_PointerMovedForImageDrag(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_imageDragPending || sender is not RichEditBox editor || editor != _imageDragEditor)
+            return;
+
+        var point = e.GetCurrentPoint(editor).Position;
+        if (Math.Abs(point.X - _imageDragStart.X) < 8 &&
+            Math.Abs(point.Y - _imageDragStart.Y) < 8)
+            return;
+
+        _imageDragPending = false;
+
+        try
+        {
+            var imgRange = editor.Document.GetRange(_imageDragPosition, _imageDragPosition + 1);
+            imgRange.GetText(TextGetOptions.FormatRtf, out var rtf);
+
+            var bytes = ExtractImageBytesFromRtf(rtf);
+            if (bytes == null) return;
+
+            var ext = (bytes.Length > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) ? ".jpg" : ".png";
+            var safeTitle = string.Join("_",
+                (_note.Title ?? "Image").Split(Path.GetInvalidFileNameChars()));
+            if (safeTitle.Length > 30) safeTitle = safeTitle[..30];
+            var tempPath = Path.Combine(Path.GetTempPath(),
+                $"{safeTitle}_{DateTime.Now:HHmmss}{ext}");
+            await File.WriteAllBytesAsync(tempPath, bytes);
+            _tempDragImagePath = tempPath;
+
+            editor.CanDrag = true;
+            editor.DragStarting += Editor_ImageDragStarting;
+
+            try
+            {
+                await editor.StartDragAsync(e.GetCurrentPoint(editor));
+            }
+            finally
+            {
+                editor.CanDrag = false;
+                editor.DragStarting -= Editor_ImageDragStarting;
+                var path = _tempDragImagePath;
+                _tempDragImagePath = null;
+                if (path != null)
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(2000);
+                        try { File.Delete(path); } catch { }
+                    });
+            }
+        }
+        catch { }
+    }
+
+    private void Editor_PointerReleasedForImageDrag(object sender, PointerRoutedEventArgs e)
+    {
+        _imageDragPending = false;
+        _imageDragEditor = null;
+        _imageDragPosition = -1;
+    }
+
+    private async void Editor_ImageDragStarting(UIElement sender, DragStartingEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_tempDragImagePath) || !File.Exists(_tempDragImagePath))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var deferral = e.GetDeferral();
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(_tempDragImagePath);
+            e.Data.SetStorageItems(new[] { file });
+            e.Data.RequestedOperation =
+                Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        }
+        catch
+        {
+            e.Cancel = true;
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private static int FindImageAtCursor(RichEditBox editor)
+    {
+        var sel = editor.Document.Selection;
+        var start = sel.StartPosition;
+
+        // Image selected (e.g. double-click or prior selection)
+        if (sel.EndPosition - start == 1)
+        {
+            var r = editor.Document.GetRange(start, start + 1);
+            r.GetText(TextGetOptions.None, out var ch);
+            if (ch == "\uFFFC") return start;
+        }
+
+        // Cursor placed right before an image
+        {
+            var r = editor.Document.GetRange(start, start + 1);
+            r.GetText(TextGetOptions.None, out var ch);
+            if (!string.IsNullOrEmpty(ch) && ch[0] == '\uFFFC') return start;
+        }
+
+        // Cursor placed right after an image
+        if (start > 0)
+        {
+            var r = editor.Document.GetRange(start - 1, start);
+            r.GetText(TextGetOptions.None, out var ch);
+            if (!string.IsNullOrEmpty(ch) && ch[0] == '\uFFFC') return start - 1;
+        }
+
+        return -1;
+    }
+
+    private static byte[]? ExtractImageBytesFromRtf(string rtf)
+    {
+        if (string.IsNullOrEmpty(rtf)) return null;
+
+        var markerIdx = rtf.IndexOf("\\pngblip", StringComparison.Ordinal);
+        if (markerIdx < 0) markerIdx = rtf.IndexOf("\\jpegblip", StringComparison.Ordinal);
+        if (markerIdx < 0) return null;
+
+        var i = markerIdx + 1;
+        while (i < rtf.Length && rtf[i] != ' ' && rtf[i] != '\\' && rtf[i] != '}') i++;
+
+        while (i < rtf.Length && rtf[i] != '}')
+        {
+            if (rtf[i] == '\\')
+            {
+                i++;
+                while (i < rtf.Length && char.IsLetter(rtf[i])) i++;
+                while (i < rtf.Length && (rtf[i] == '-' || char.IsDigit(rtf[i]))) i++;
+                if (i < rtf.Length && rtf[i] == ' ') i++;
+            }
+            else if (rtf[i] == ' ' || rtf[i] == '\r' || rtf[i] == '\n')
+                i++;
+            else break;
+        }
+
+        var sb = new StringBuilder();
+        while (i < rtf.Length && rtf[i] != '}')
+        {
+            var c = rtf[i];
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+                sb.Append(c);
+            i++;
+        }
+
+        var hex = sb.ToString();
+        if (hex.Length < 16) return null;
+
+        try
+        {
+            var bytes = new byte[hex.Length / 2];
+            for (int j = 0; j < bytes.Length; j++)
+                bytes[j] = byte.Parse(hex.AsSpan(j * 2, 2),
+                    System.Globalization.NumberStyles.HexNumber);
+            return bytes;
+        }
+        catch { return null; }
     }
 
     // ── Screen capture ──────────────────────────────────────────
