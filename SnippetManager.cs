@@ -39,7 +39,17 @@ public class SnippetManager
         catch { }
     }
 
-    public SnippetEntry AddSnippet(string noteId, string keyword, string prefix, string content)
+    public List<string> GetAllCategories()
+    {
+        return _snippets
+            .Where(s => !string.IsNullOrEmpty(s.Category))
+            .Select(s => s.Category)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c)
+            .ToList();
+    }
+
+    public SnippetEntry AddSnippet(string noteId, string keyword, string prefix, string content, string category = "")
     {
         // Remove existing snippet for same noteId if any
         _snippets.RemoveAll(s => s.NoteId == noteId);
@@ -51,6 +61,7 @@ public class SnippetManager
             Keyword = keyword,
             Prefix = prefix,
             Content = content,
+            Category = category,
             CreatedAt = DateTime.Now,
             UpdatedAt = DateTime.Now,
         };
@@ -106,6 +117,7 @@ public class SnippetEntry
     public string Keyword { get; set; } = "";
     public string Prefix { get; set; } = "";
     public string Content { get; set; } = "";
+    public string Category { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

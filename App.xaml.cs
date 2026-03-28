@@ -20,10 +20,15 @@ public partial class App : Application
         _window = new MainWindow();
         _window.Activate();
 
-        if (AppSettings.LoadStartMinimized())
+        // Only minimize at startup when launched via Windows auto-start
+        if (AppSettings.LoadStartMinimized() && AppSettings.LoadStartWithWindows())
         {
-            var appWindow = _window.AppWindow;
-            appWindow.Hide();
+            var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+            if (uptime.TotalMinutes < 5)
+            {
+                var appWindow = _window.AppWindow;
+                appWindow.Hide();
+            }
         }
     }
 

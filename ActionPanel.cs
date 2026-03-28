@@ -203,7 +203,9 @@ public static class ActionPanel
         bool startWithWindows = false, bool startMinimized = false,
         Action<bool>? onStartWithWindowsToggled = null, Action<bool>? onStartMinimizedToggled = null,
         string? currentSort = null, Action<string>? onSortSelected = null,
-        bool compactCards = false, Action<bool>? onCompactToggled = null)
+        bool compactCards = false, Action<bool>? onCompactToggled = null,
+        Action? onShowWidget = null,
+        Action? onQuit = null)
     {
         var flyout = new Flyout();
         flyout.FlyoutPresenterStyle = CreateFlyoutPresenterStyle(260, 320);
@@ -220,14 +222,14 @@ public static class ActionPanel
         // Theme
         var themes = new[] { ("system", Lang.T("theme_system")), ("light", Lang.T("theme_light")), ("dark", Lang.T("theme_dark")) };
         var themeBtn = CreateCascadeButton(Lang.T("theme"), FindLabel(themes, currentTheme),
-            CreateRadioSubMenu("Theme", themes, currentTheme, k => { onThemeSelected(k); flyout.Hide(); }));
+            CreateRadioSubMenu("Theme", themes, currentTheme, k => { onThemeSelected(k); flyout.Hide(); }), "\uE790");
         allButtons.Add(themeBtn);
         panel.Children.Add(themeBtn);
 
         // Backdrop
         var backdrops = new[] { ("acrylic", "Acrylic"), ("mica", "Mica"), ("mica_alt", "MicaAlt"), ("acrylic_custom", Lang.T("backdrop_acrylic_custom")), ("none", Lang.T("backdrop_none")) };
         var backdropBtn = CreateCascadeButton(Lang.T("backdrop"), FindLabel(backdrops, currentBackdropType),
-            CreateRadioSubMenu("Backdrop", backdrops, currentBackdropType, k => { onBackdropSelected(k); flyout.Hide(); }));
+            CreateRadioSubMenu("Backdrop", backdrops, currentBackdropType, k => { onBackdropSelected(k); flyout.Hide(); }), "\uEF1F");
         allButtons.Add(backdropBtn);
         panel.Children.Add(backdropBtn);
 
@@ -237,7 +239,7 @@ public static class ActionPanel
             var noteStyles = new[] { ("titlebar", Lang.T("note_style_titlebar")), ("full", Lang.T("note_style_full")) };
             var noteStyle = currentNoteStyle ?? "titlebar";
             var noteBtn = CreateCascadeButton(Lang.T("note_section"), FindLabel(noteStyles, noteStyle),
-                CreateRadioSubMenu("NoteStyle", noteStyles, noteStyle, k => { onNoteStyleSelected(k); flyout.Hide(); }));
+                CreateRadioSubMenu("NoteStyle", noteStyles, noteStyle, k => { onNoteStyleSelected(k); flyout.Hide(); }), "\uE70F");
             noteBtn.Tag = Lang.T("note_section") + " Couleur Note";
             allButtons.Add(noteBtn);
             panel.Children.Add(noteBtn);
@@ -249,7 +251,7 @@ public static class ActionPanel
             var fonts = new[] { ("segoe", "Segoe UI"), ("geist", "Geist"), ("inter", "Inter"), ("jetbrains", "JetBrains Mono") };
             var font = currentFont ?? "geist";
             var fontBtn = CreateCascadeButton(Lang.T("font_section"), FindLabel(fonts, font),
-                CreateRadioSubMenu("Font", fonts, font, k => { onFontSelected(k); flyout.Hide(); }));
+                CreateRadioSubMenu("Font", fonts, font, k => { onFontSelected(k); flyout.Hide(); }), "\uE8D2");
             fontBtn.Tag = Lang.T("font_section") + " Police Font Geist Inter Segoe JetBrains";
             allButtons.Add(fontBtn);
             panel.Children.Add(fontBtn);
@@ -267,7 +269,7 @@ public static class ActionPanel
             };
             var sort = currentSort ?? "recent";
             var sortBtn = CreateCascadeButton(Lang.T("sort_section"), FindLabel(sorts, sort),
-                CreateRadioSubMenu("Sort", sorts, sort, k => { onSortSelected(k); flyout.Hide(); }));
+                CreateRadioSubMenu("Sort", sorts, sort, k => { onSortSelected(k); flyout.Hide(); }), "\uE8CB");
             sortBtn.Tag = Lang.T("sort_section") + " Tri Sort Récent Alphabétique Couleur Taille";
             allButtons.Add(sortBtn);
             panel.Children.Add(sortBtn);
@@ -286,6 +288,21 @@ public static class ActionPanel
             panel.Children.Add(compactBtn);
         }
 
+        // Widget
+        if (onShowWidget != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            var widgetAction = new ActionItem("\uE16F", Lang.T("widget"), [], () => { });
+            var widgetBtn = CreateButton(widgetAction, () =>
+            {
+                onShowWidget();
+                flyout.Hide();
+            });
+            widgetBtn.Tag = Lang.T("widget") + " Widget";
+            allButtons.Add(widgetBtn);
+            panel.Children.Add(widgetBtn);
+        }
+
         panel.Children.Add(CreateSeparator());
 
         // Storage
@@ -301,7 +318,7 @@ public static class ActionPanel
             : isWebDavConnected ? "WebDAV"
             : isCustomFolder ? Lang.T("custom_folder")
             : Lang.T("local");
-        var storageBtn = CreateCascadeButton(Lang.T("storage"), storageValue, storageSubMenu);
+        var storageBtn = CreateCascadeButton(Lang.T("storage"), storageValue, storageSubMenu, "\uE753");
         storageBtn.Tag = Lang.T("storage") + " Cloud Firebase WebDAV Local";
         allButtons.Add(storageBtn);
         panel.Children.Add(storageBtn);
@@ -311,14 +328,14 @@ public static class ActionPanel
         // AI
         if (onShowAi != null)
         {
-            var aiBtn = CreateNavigateButton(Lang.T("ai_label"), () => onShowAi(flyout));
+            var aiBtn = CreateNavigateButton(Lang.T("ai_label"), () => onShowAi(flyout), "\uE99A");
             aiBtn.Tag = Lang.T("ai_label") + " IA AI OpenAI Claude Gemini GGUF";
             allButtons.Add(aiBtn);
             panel.Children.Add(aiBtn);
 
             if (onShowPrompts != null)
             {
-                var promptsBtn = CreateNavigateButton(Lang.T("ai_prompts"), () => onShowPrompts(flyout));
+                var promptsBtn = CreateNavigateButton(Lang.T("ai_prompts"), () => onShowPrompts(flyout), "\uE8C9");
                 promptsBtn.Tag = Lang.T("ai_prompts") + " prompt IA AI";
                 allButtons.Add(promptsBtn);
                 panel.Children.Add(promptsBtn);
@@ -328,7 +345,7 @@ public static class ActionPanel
         // Voice
         if (onShowVoiceModels != null)
         {
-            var voiceBtn = CreateNavigateButton(Lang.T("voice_model"), () => onShowVoiceModels(flyout));
+            var voiceBtn = CreateNavigateButton(Lang.T("voice_model"), () => onShowVoiceModels(flyout), "\uE720");
             voiceBtn.Tag = Lang.T("voice_model") + " TTS STT";
             allButtons.Add(voiceBtn);
             panel.Children.Add(voiceBtn);
@@ -337,7 +354,7 @@ public static class ActionPanel
         // Shortcuts
         if (onShowShortcuts != null)
         {
-            var shortcutsBtn = CreateNavigateButton(Lang.T("shortcuts_label"), () => onShowShortcuts(flyout));
+            var shortcutsBtn = CreateNavigateButton(Lang.T("shortcuts_label"), () => onShowShortcuts(flyout), "\uE765");
             shortcutsBtn.Tag = Lang.T("shortcuts_label") + " Raccourcis clavier";
             allButtons.Add(shortcutsBtn);
             panel.Children.Add(shortcutsBtn);
@@ -363,7 +380,7 @@ public static class ActionPanel
         {
             var langs = new[] { ("en", Lang.T("language_en")), ("fr", Lang.T("language_fr")) };
             var langBtn = CreateCascadeButton(Lang.T("language_section"), FindLabel(langs, currentLanguage ?? "en"),
-                CreateRadioSubMenu("Language", langs, currentLanguage ?? "en", c => { onLanguageSelected(c); flyout.Hide(); }));
+                CreateRadioSubMenu("Language", langs, currentLanguage ?? "en", c => { onLanguageSelected(c); flyout.Hide(); }), "\uE774");
             allButtons.Add(langBtn);
             panel.Children.Add(langBtn);
         }
@@ -373,7 +390,7 @@ public static class ActionPanel
         {
             var startupBtn = CreateNavigateButton(Lang.T("startup"), () =>
                 ShowStartupSubPanel(flyout, startWithWindows, startMinimized,
-                    onStartWithWindowsToggled, onStartMinimizedToggled));
+                    onStartWithWindowsToggled, onStartMinimizedToggled), "\uE7B5");
             startupBtn.Tag = Lang.T("startup") + " Démarrage Startup Windows Tray";
             allButtons.Add(startupBtn);
             panel.Children.Add(startupBtn);
@@ -384,7 +401,7 @@ public static class ActionPanel
         {
             panel.Children.Add(CreateSeparator());
             var resetBtn = CreateNavigateButton(Lang.T("reset"), () =>
-                ShowResetSubPanel(flyout, onResetPassword, onResetNotes));
+                ShowResetSubPanel(flyout, onResetPassword, onResetNotes), "\uE72C");
             resetBtn.Tag = Lang.T("reset") + " Réinitialiser Reset";
             // Red text
             if (resetBtn.Content is Grid rg)
@@ -398,10 +415,20 @@ public static class ActionPanel
         // About
         panel.Children.Add(CreateSeparator());
         var aboutBtn = CreateNavigateButton(Lang.T("about"), () =>
-            ShowAboutPanel(flyout));
+            ShowAboutPanel(flyout), "\uE946");
         aboutBtn.Tag = Lang.T("about") + " About À propos NoteUI OhMyCode";
         allButtons.Add(aboutBtn);
         panel.Children.Add(aboutBtn);
+
+        // Quit
+        if (onQuit != null)
+        {
+            panel.Children.Add(CreateSeparator());
+            var quitAction = new ActionItem("\uE7E8", Lang.T("quit"), [], () => { }, IsDestructive: true);
+            var quitBtn = CreateButton(quitAction, () => { onQuit(); flyout.Hide(); });
+            allButtons.Add(quitBtn);
+            panel.Children.Add(quitBtn);
+        }
 
         // Search
         panel.Children.Add(CreateSeparator());
@@ -526,7 +553,7 @@ public static class ActionPanel
         return btn;
     }
 
-    private static Button CreateCascadeButton(string label, string currentValue, Flyout subMenu)
+    private static Button CreateCascadeButton(string label, string currentValue, Flyout subMenu, string? glyph = null)
     {
         var btn = new Button
         {
@@ -542,30 +569,40 @@ public static class ActionPanel
         };
 
         var grid = new Grid { ColumnSpacing = 6 };
+        if (glyph != null)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        int col = 0;
+        if (glyph != null)
+        {
+            var icon = new FontIcon { Glyph = glyph, FontSize = 12, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(icon, col++);
+            grid.Children.Add(icon);
+        }
+
         var text = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(text, 0);
+        Grid.SetColumn(text, col++);
         grid.Children.Add(text);
 
         if (!string.IsNullOrEmpty(currentValue))
         {
             var value = new TextBlock { Text = currentValue, FontSize = 11, Opacity = 0.45, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(value, 1);
+            Grid.SetColumn(value, col);
             grid.Children.Add(value);
         }
 
         var chevron = new FontIcon { Glyph = "\uE76C", FontSize = 9, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(chevron, 2);
+        Grid.SetColumn(chevron, col + 1);
         grid.Children.Add(chevron);
 
         btn.Content = grid;
         return btn;
     }
 
-    private static Button CreateNavigateButton(string label, Action handler)
+    private static Button CreateNavigateButton(string label, Action handler, string? glyph = null)
     {
         var btn = new Button
         {
@@ -580,15 +617,25 @@ public static class ActionPanel
         };
 
         var grid = new Grid { ColumnSpacing = 6 };
+        if (glyph != null)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        int col = 0;
+        if (glyph != null)
+        {
+            var icon = new FontIcon { Glyph = glyph, FontSize = 12, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(icon, col++);
+            grid.Children.Add(icon);
+        }
+
         var text = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(text, 0);
+        Grid.SetColumn(text, col++);
         grid.Children.Add(text);
 
         var chevron = new FontIcon { Glyph = "\uE76C", FontSize = 9, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(chevron, 1);
+        Grid.SetColumn(chevron, col);
         grid.Children.Add(chevron);
 
         btn.Content = grid;
@@ -1410,6 +1457,21 @@ public static class ActionPanel
 
         var form = new StackPanel { Spacing = 12, Padding = new Thickness(8) };
 
+        // Category
+        var categoryCombo = new ComboBox
+        {
+            Header = Lang.T("snippet_category"),
+            PlaceholderText = Lang.T("snippet_category_placeholder"),
+            FontSize = 13,
+            IsEditable = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        foreach (var cat in snippetManager.GetAllCategories())
+            categoryCombo.Items.Add(cat);
+        if (existing != null && !string.IsNullOrEmpty(existing.Category))
+            categoryCombo.Text = existing.Category;
+        form.Children.Add(categoryCombo);
+
         // Keyword
         var keywordBox = new TextBox
         {
@@ -1481,12 +1543,24 @@ public static class ActionPanel
         var saveBtn = new Button
         {
             Content = Lang.T("save"),
-            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+            IsEnabled = !string.IsNullOrWhiteSpace(categoryCombo.Text)
         };
+
+        void UpdateSaveEnabled()
+        {
+            saveBtn.IsEnabled = !string.IsNullOrWhiteSpace(categoryCombo.Text);
+        }
+        categoryCombo.TextSubmitted += (_, _) => UpdateSaveEnabled();
+        categoryCombo.SelectionChanged += (_, _) => UpdateSaveEnabled();
+        categoryCombo.DropDownClosed += (_, _) => UpdateSaveEnabled();
+
         saveBtn.Click += (_, _) =>
         {
             var kw = keywordBox.Text.Trim();
             if (string.IsNullOrEmpty(kw)) return;
+            var category = categoryCombo.Text?.Trim() ?? "";
+            if (string.IsNullOrEmpty(category)) return;
             var prefix = prefixCombo.SelectedIndex > 0 ? prefixes[prefixCombo.SelectedIndex] : "";
 
             // Strip RTF if needed to get plain text for expansion
@@ -1494,7 +1568,7 @@ public static class ActionPanel
             if (plainContent.StartsWith("{\\rtf", StringComparison.Ordinal))
                 plainContent = StripRtfToPlain(plainContent);
 
-            snippetManager.AddSnippet(noteId, kw, prefix, plainContent);
+            snippetManager.AddSnippet(noteId, kw, prefix, plainContent, category);
             flyout.Hide();
         };
         buttonsPanel.Children.Add(saveBtn);
