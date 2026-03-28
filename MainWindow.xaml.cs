@@ -59,6 +59,7 @@ public sealed partial class MainWindow : Window
     private RichEditBox? _expandedEditor;
     private bool _suppressInlineTextChanged;
     private bool _inlineEditorDirty;
+    private bool _inlineEditorLoaded;
 
     private bool _isDragging;
     private POINT _dragStartCursor;
@@ -990,8 +991,7 @@ public sealed partial class MainWindow : Window
         _openNoteWindows.Add(window);
         window.NoteChanged += () =>
         {
-            RefreshCurrentView();
-            // Keep snippet content in sync
+            // Keep snippet content in sync (no main window refresh — deferred to close)
             var n = _notes.Notes.FirstOrDefault(n => n.Id == window.NoteId);
             if (n != null) _snippetManager.UpdateContent(n.Id, n.Content);
         };
@@ -1140,7 +1140,6 @@ public sealed partial class MainWindow : Window
 
             window.NoteChanged += () => DispatcherQueue.TryEnqueue(() =>
             {
-                RefreshCurrentView();
                 _attachmentService?.Refresh();
             });
             window.Closed += (_, _) =>
@@ -1249,11 +1248,12 @@ public sealed partial class MainWindow : Window
         _expandedCardIndex = -1;
         _expandedEditor = null;
         _inlineEditorDirty = false;
+        _inlineEditorLoaded = false;
     }
 
     private void SaveInlineEditor()
     {
-        if (_expandedEditor == null || _expandedNoteId == null) return;
+        if (_expandedEditor == null || _expandedNoteId == null || !_inlineEditorLoaded) return;
 
         _expandedEditor.Document.GetText(Microsoft.UI.Text.TextGetOptions.FormatRtf, out var rtf);
 
@@ -1578,10 +1578,26 @@ public sealed partial class MainWindow : Window
             {
                 editor.Document.SetText(Microsoft.UI.Text.TextSetOptions.None, content);
             }
+            NoteLinkHelper.RepairHiddenLinks(editor, _notes);
 
             _suppressInlineTextChanged = false;
+            _inlineEditorLoaded = true;
             editor.Focus(FocusState.Programmatic);
         };
+
+        editor.AddHandler(UIElement.PointerPressedEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler((s, args) =>
+            {
+                var props = args.GetCurrentPoint(editor).Properties;
+                if (!props.IsLeftButtonPressed) return;
+                var kbState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+                if (!kbState.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    var noteId = NoteLinkHelper.DetectLinkAtCursor(editor, _notes);
+                    if (noteId != null) OpenNote(noteId);
+                });
+            }), true);
 
         editor.TextChanged += (_, _) =>
         {
@@ -1822,6 +1838,12 @@ public sealed partial class MainWindow : Window
         _notepadWindow.SetSnippetManager(_snippetManager);
         _notepadWindow.RefreshAiUi();
         _notepadWindow.NoteCreated += () => DispatcherQueue.TryEnqueue(() => RefreshCurrentView());
+        _notepadWindow.NoteContentChanged += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            // Sync open NoteWindows with notepad changes (don't steal focus, no main window refresh)
+            foreach (var w in _openNoteWindows)
+                w.ReloadFromDisk(focus: false);
+        });
         _notepadWindow.Closed += (_, _) =>
         {
             if (_notepadWindow != null)
@@ -1831,6 +1853,7 @@ public sealed partial class MainWindow : Window
                 AppSettings.SaveNotepadPosition(p.X, p.Y, s.Width, s.Height);
             }
             _notepadWindow = null;
+            RefreshCurrentView();
         };
 
         var savedPos = AppSettings.LoadNotepadPosition();

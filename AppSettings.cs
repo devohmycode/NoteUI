@@ -266,11 +266,11 @@ public static class AppSettings
                 var json = File.ReadAllText(SettingsPath);
                 var doc = JsonDocument.Parse(json);
                 if (doc.RootElement.TryGetProperty("sortMode", out var prop))
-                    return prop.GetString() ?? "recent";
+                    return prop.GetString() ?? "created";
             }
         }
         catch { }
-        return "recent";
+        return "created";
     }
 
     public static void SaveSortPreference(string mode)

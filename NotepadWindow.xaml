@@ -98,6 +98,8 @@
                 <MenuFlyoutSeparator/>
                 <MenuFlyoutItem x:Name="MenuSaveToNotes" Click="SaveToNotes_Click"/>
                 <MenuFlyoutSeparator/>
+                <MenuFlyoutItem x:Name="MenuOpenNote" Click="OpenNote_Click"/>
+                <MenuFlyoutSeparator/>
                 <MenuFlyoutItem x:Name="MenuClose" Click="CloseMenu_Click"/>
             </MenuBarItem>
 
@@ -150,6 +152,15 @@
                 <ToggleMenuFlyoutItem x:Name="SplitViewItem"
                                       IsChecked="False"
                                       Click="SplitView_Click"/>
+                <MenuFlyoutSeparator/>
+                <ToggleMenuFlyoutItem x:Name="FocusModeItem"
+                                      IsChecked="False"
+                                      Click="FocusMode_Click"
+                                      KeyboardAcceleratorTextOverride="F11">
+                    <ToggleMenuFlyoutItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="F11"/>
+                    </ToggleMenuFlyoutItem.KeyboardAccelerators>
+                </ToggleMenuFlyoutItem>
             </MenuBarItem>
         </MenuBar>
 
@@ -296,6 +307,9 @@
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Name="CharCountText"
+                               FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="WordCountText"
                                FontSize="11"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Name="RichTextLabel"

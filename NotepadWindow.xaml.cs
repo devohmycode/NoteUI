@@ -36,6 +36,8 @@ public sealed partial class NotepadWindow : Window
     private int _autoResizeMaxHeight = 900;
     private bool _isSplitView;
     private AiManager? _aiManager;
+    private Flyout? _noteLinkFlyout;
+    private bool _isFocusMode;
 
     // ── Tabs ────────────────────────────────────────────────────
     private sealed class TabData
@@ -88,6 +90,8 @@ public sealed partial class NotepadWindow : Window
         ApplyNotepadLocalization();
         RefreshAiUi();
         Editor.ContextRequested += Editor_ContextRequested;
+        Editor.KeyDown += Editor_KeyDown;
+        ApplyEditorThemeColor();
 
         this.Closed += (_, _) =>
         {
@@ -97,6 +101,33 @@ public sealed partial class NotepadWindow : Window
         AddNewTab();
         // Focus editor on open
         this.Activated += OnFirstActivated;
+    }
+
+    private void ApplyEditorThemeColor()
+    {
+        if (!ThemeHelper.IsDark()) return;
+
+        var whiteBrush = new SolidColorBrush(Microsoft.UI.Colors.White);
+        Editor.Foreground = whiteBrush;
+        Editor.Resources["TextControlForeground"] = whiteBrush;
+        Editor.Resources["TextControlForegroundPointerOver"] = whiteBrush;
+        Editor.Resources["TextControlForegroundFocused"] = whiteBrush;
+
+        // Default format for newly typed text
+        var fmt = Editor.Document.GetDefaultCharacterFormat();
+        fmt.ForegroundColor = Windows.UI.Color.FromArgb(255, 255, 255, 255);
+        Editor.Document.SetDefaultCharacterFormat(fmt);
+    }
+
+    /// <summary>
+    /// Adapt RTF colors for dark theme before loading into editor.
+    /// This preserves Hidden formatting (note link IDs) unlike post-load CharacterFormat changes.
+    /// </summary>
+    private static string AdaptRtfForTheme(string rtf)
+    {
+        if (!ThemeHelper.IsDark() || string.IsNullOrEmpty(rtf) || !rtf.StartsWith("{\\rtf", StringComparison.Ordinal))
+            return rtf;
+        return rtf.Replace("\\red0\\green0\\blue0", "\\red255\\green255\\blue255");
     }
 
     private void OnFirstActivated(object sender, WindowActivatedEventArgs e)
@@ -116,18 +147,29 @@ public sealed partial class NotepadWindow : Window
     public void LoadNoteContent(string title, string rtfContent, string? noteId = null)
     {
         SaveCurrentTabContent();
+
+        // Remove the initial empty tab if it's the only one and has no content
+        if (_tabs.Count == 1 && _tabs[0].NoteId == null && _tabs[0].FilePath == null)
+        {
+            Editor.Document.GetText(TextGetOptions.None, out var existingText);
+            if (string.IsNullOrWhiteSpace(existingText.TrimEnd('\r', '\n')))
+                _tabs.RemoveAt(0);
+        }
+
         var tab = new TabData { Title = title, NoteId = noteId };
         _tabs.Add(tab);
         _activeTabId = tab.Id;
         _switchingTab = true;
         if (!string.IsNullOrEmpty(rtfContent) && rtfContent.StartsWith("{\\rtf", StringComparison.Ordinal))
-            Editor.Document.SetText(TextSetOptions.FormatRtf, rtfContent);
+            Editor.Document.SetText(TextSetOptions.FormatRtf, AdaptRtfForTheme(rtfContent));
         else
             Editor.Document.SetText(TextSetOptions.None, rtfContent ?? "");
+        NoteLinkHelper.RepairHiddenLinks(Editor, _notesManager);
         _switchingTab = false;
         tab.RtfContent = rtfContent ?? "";
         TitleText.Text = $"{title} \u2014 {Lang.T("notepad")}";
         RefreshTabStrip();
+        ApplyEditorThemeColor();
         FocusEditorAtEnd();
     }
 
@@ -141,6 +183,7 @@ public sealed partial class NotepadWindow : Window
         MenuSave.Text = Lang.T("save");
         MenuSaveAs.Text = Lang.T("save_as");
         MenuSaveToNotes.Text = Lang.T("save_to_notes");
+        MenuOpenNote.Text = Lang.T("open_note");
         MenuClose.Text = Lang.T("close");
 
         EditMenu.Title = Lang.T("edit_menu");
@@ -160,6 +203,7 @@ public sealed partial class NotepadWindow : Window
         MenuZoomDefault.Text = Lang.T("zoom_default");
         AutoResizeItem.Text = Lang.T("auto_resize");
         SplitViewItem.Text = Lang.T("split_view");
+        FocusModeItem.Text = Lang.T("focus_mode");
 
         MenuHeadingNormal.Text = Lang.T("normal_text");
         MenuHeadingH1.Text = Lang.T("heading1");
@@ -193,6 +237,7 @@ public sealed partial class NotepadWindow : Window
         _switchingTab = false;
         TitleText.Text = $"{Lang.T("untitled")} \u2014 {Lang.T("notepad")}";
         RefreshTabStrip();
+        ApplyEditorThemeColor();
         Editor.Focus(FocusState.Programmatic);
     }
 
@@ -208,11 +253,13 @@ public sealed partial class NotepadWindow : Window
         if (string.IsNullOrEmpty(tab.RtfContent))
             Editor.Document.SetText(TextSetOptions.None, "");
         else
-            Editor.Document.SetText(TextSetOptions.FormatRtf, tab.RtfContent);
+            Editor.Document.SetText(TextSetOptions.FormatRtf, AdaptRtfForTheme(tab.RtfContent));
+        NoteLinkHelper.RepairHiddenLinks(Editor, _notesManager);
         _switchingTab = false;
 
         TitleText.Text = $"{tab.Title} \u2014 {Lang.T("notepad")}";
         RefreshTabStrip();
+        ApplyEditorThemeColor();
         Editor.Focus(FocusState.Programmatic);
     }
 
@@ -235,6 +282,8 @@ public sealed partial class NotepadWindow : Window
         current.RtfContent = rtf;
     }
 
+    private string? _dragTabId;
+
     private void RefreshTabStrip()
     {
         TabStrip.Children.Clear();
@@ -244,6 +293,10 @@ public sealed partial class NotepadWindow : Window
             var isActive = tab.Id == _activeTabId;
             var tabId = tab.Id;
             var hasSavedName = !string.IsNullOrEmpty(tab.FilePath);
+            var hasNoteId = !string.IsNullOrEmpty(tab.NoteId);
+            var displayTitle = hasSavedName
+                ? Path.GetFileNameWithoutExtension(tab.FilePath)
+                : tab.Title;
 
             var tabBtn = new Button
             {
@@ -256,29 +309,52 @@ public sealed partial class NotepadWindow : Window
                 Height = 34,
                 Width = 120,
                 Opacity = isActive ? 1.0 : 0.7,
+                AllowDrop = true,
+                CanDrag = true,
+                Tag = tabId,
+            };
+
+            // Drag-and-drop reordering
+            tabBtn.DragStarting += (s, args) =>
+            {
+                _dragTabId = tabId;
+                args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+            };
+            tabBtn.DragOver += (s, args) =>
+            {
+                args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+            };
+            tabBtn.Drop += (s, args) =>
+            {
+                if (_dragTabId == null || _dragTabId == tabId) return;
+                var fromIdx = _tabs.FindIndex(t => t.Id == _dragTabId);
+                var toIdx = _tabs.FindIndex(t => t.Id == tabId);
+                if (fromIdx < 0 || toIdx < 0) return;
+                var moving = _tabs[fromIdx];
+                _tabs.RemoveAt(fromIdx);
+                _tabs.Insert(toIdx, moving);
+                _dragTabId = null;
+                RefreshTabStrip();
             };
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            if (hasSavedName)
+            var titleBlock = new TextBlock
             {
-                var titleBlock = new TextBlock
-                {
-                    Text = Path.GetFileNameWithoutExtension(tab.FilePath),
-                    FontSize = 12,
-                    FontWeight = isActive
-                        ? Microsoft.UI.Text.FontWeights.SemiBold
-                        : Microsoft.UI.Text.FontWeights.Normal,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    Margin = new Thickness(8, 0, 0, 0),
-                };
-                Grid.SetColumn(titleBlock, 0);
-                grid.Children.Add(titleBlock);
-            }
+                Text = displayTitle,
+                FontSize = 12,
+                FontWeight = isActive
+                    ? Microsoft.UI.Text.FontWeights.SemiBold
+                    : Microsoft.UI.Text.FontWeights.Normal,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+            Grid.SetColumn(titleBlock, 0);
+            grid.Children.Add(titleBlock);
 
             if (_tabs.Count > 1)
             {
@@ -362,16 +438,37 @@ public sealed partial class NotepadWindow : Window
 
     // ── Status bar ───────────────────────────────────────────────
 
+    public event Action? NoteContentChanged;
+
     private void Editor_TextChanged(object sender, RoutedEventArgs e)
     {
         if (_switchingTab || _slashUndoing) return;
 
         Editor.Document.GetText(TextGetOptions.None, out var text);
-        var count = text.TrimEnd('\r', '\n').Length;
+        var trimmed = text.TrimEnd('\r', '\n');
+        var count = trimmed.Length;
         CharCountText.Text = count == 1 ? Lang.T("char_count_one") : Lang.T("char_count_many", count);
+
+        var words = string.IsNullOrWhiteSpace(trimmed) ? 0
+            : trimmed.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).Length;
+        WordCountText.Text = words == 1 ? Lang.T("word_count_one") : Lang.T("word_count", words);
 
         UpdateActiveTabTitle();
         AutoResizeWindow();
+
+        // Auto-save to linked note
+        var activeTab = _tabs.Find(t => t.Id == _activeTabId);
+        if (activeTab?.NoteId != null)
+        {
+            Editor.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
+            activeTab.RtfContent = rtf;
+            var note = _notesManager.Notes.FirstOrDefault(n => n.Id == activeTab.NoteId);
+            if (note != null)
+            {
+                _notesManager.UpdateNote(note.Id, rtf, note.Title, note.Color);
+                NoteContentChanged?.Invoke();
+            }
+        }
 
         // Update split preview in real-time
         if (_isSplitView)
@@ -463,6 +560,19 @@ public sealed partial class NotepadWindow : Window
                 _slashFlyout = SlashCommands.Show(Editor, topActions, () => _slashFlyout = null);
             }
         }
+
+        // Detect [[ for note linking
+        if (_noteLinkFlyout == null)
+            DetectNoteLinkTrigger();
+    }
+
+    private void Editor_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape && _isFocusMode)
+        {
+            ExitFocusMode();
+            e.Handled = true;
+        }
     }
 
     private void Editor_SelectionChanged(object sender, RoutedEventArgs e)
@@ -471,8 +581,193 @@ public sealed partial class NotepadWindow : Window
         UpdateToolbarState();
     }
 
+    // ── Note links [[note name]] ──────────────────────────────
+
+    private static readonly Windows.UI.Color NoteLinkColor = Windows.UI.Color.FromArgb(255, 140, 200, 120);
+
+    private void DetectNoteLinkTrigger()
+    {
+        var sel = Editor.Document.Selection;
+        if (sel == null) return;
+
+        int cursorPos = sel.StartPosition;
+        int lookBack = Math.Min(cursorPos, 100);
+        if (lookBack < 2) return;
+
+        var range = Editor.Document.GetRange(cursorPos - lookBack, cursorPos);
+        range.GetText(TextGetOptions.None, out var textBefore);
+        if (textBefore == null) return;
+
+        int openBracket = textBefore.LastIndexOf("[[", StringComparison.Ordinal);
+        if (openBracket < 0) return;
+
+        var afterBracket = textBefore[(openBracket + 2)..];
+        if (afterBracket.Contains("]]", StringComparison.Ordinal)) return;
+        if (afterBracket.Contains('\r') || afterBracket.Contains('\n')) return;
+
+        var query = afterBracket;
+        var bracketAbsPos = cursorPos - lookBack + openBracket;
+        ShowNoteLinkFlyout(query, bracketAbsPos);
+    }
+
+    private void ShowNoteLinkFlyout(string query, int bracketPos)
+    {
+        _noteLinkFlyout?.Hide();
+
+        var activeTab = _tabs.Find(t => t.Id == _activeTabId);
+        var currentNoteId = activeTab?.NoteId;
+
+        var notes = string.IsNullOrEmpty(query)
+            ? _notesManager.Notes.Where(n => n.Id != currentNoteId && !n.IsArchived)
+                .OrderByDescending(n => n.UpdatedAt).Take(10).ToList()
+            : _notesManager.SearchByTitle(query)
+                .Where(n => n.Id != currentNoteId && !n.IsArchived).Take(10).ToList();
+
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(220, 280);
+
+        var panel = new StackPanel { Spacing = 0 };
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("link_note")));
+        panel.Children.Add(ActionPanel.CreateSeparator());
+
+        if (notes.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = Lang.T("no_notes_found"),
+                FontSize = 12,
+                Opacity = 0.5,
+                Margin = new Thickness(10, 8, 10, 8)
+            });
+        }
+
+        foreach (var note in notes)
+        {
+            var noteRef = note;
+            var btn = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 6, 10, 6),
+                CornerRadius = new CornerRadius(4),
+            };
+
+            var sp = new StackPanel { Spacing = 2 };
+            sp.Children.Add(new TextBlock
+            {
+                Text = note.Title,
+                FontSize = 13,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1
+            });
+
+            var preview = note.Preview;
+            if (!string.IsNullOrEmpty(preview))
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = preview,
+                    FontSize = 11,
+                    Opacity = 0.4,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxLines = 1
+                });
+            }
+
+            btn.Content = sp;
+            btn.Click += (_, _) =>
+            {
+                InsertNoteLink(noteRef, bracketPos);
+                flyout.Hide();
+            };
+            panel.Children.Add(btn);
+        }
+
+        flyout.Content = panel;
+        flyout.ShouldConstrainToRootBounds = false;
+        flyout.Closed += (_, _) => _noteLinkFlyout = null;
+
+        _noteLinkFlyout = flyout;
+        flyout.ShowAt(Editor, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+        {
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedLeft
+        });
+    }
+
+    private void InsertNoteLink(NoteEntry target, int bracketPos)
+    {
+        _switchingTab = true;
+
+        // Delete from [[ to current cursor position
+        var sel = Editor.Document.Selection;
+        int cursorPos = sel.StartPosition;
+        var range = Editor.Document.GetRange(bracketPos, cursorPos);
+        range.Delete(TextRangeUnit.Character, 0);
+
+        // Insert: "Title⟨hidden-id⟩" — title in green underline, ID as hidden text
+        sel = Editor.Document.Selection;
+        sel.TypeText(target.Title);
+        sel.SetRange(sel.EndPosition - target.Title.Length, sel.EndPosition);
+        sel.CharacterFormat.ForegroundColor = NoteLinkColor;
+        sel.CharacterFormat.Underline = UnderlineType.Single;
+
+        // Append hidden note ID
+        sel.SetRange(sel.EndPosition, sel.EndPosition);
+        sel.TypeText("\u200B" + target.Id + "\u200B");
+        sel.SetRange(sel.EndPosition - target.Id.Length - 2, sel.EndPosition);
+        sel.CharacterFormat.Hidden = FormatEffect.On;
+        sel.CharacterFormat.ForegroundColor = NoteLinkColor;
+
+        // Move cursor after and reset format
+        sel.SetRange(sel.EndPosition, sel.EndPosition);
+        sel.CharacterFormat.Hidden = FormatEffect.Off;
+        sel.CharacterFormat.ForegroundColor = ThemeHelper.IsDark()
+            ? Windows.UI.Color.FromArgb(255, 255, 255, 255)
+            : Windows.UI.Color.FromArgb(255, 0, 0, 0);
+        sel.CharacterFormat.Underline = UnderlineType.None;
+
+        _switchingTab = false;
+
+        // Save to linked note
+        var activeTab = _tabs.Find(t => t.Id == _activeTabId);
+        if (activeTab?.NoteId != null)
+        {
+            Editor.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
+            activeTab.RtfContent = rtf;
+            var note = _notesManager.Notes.FirstOrDefault(n => n.Id == activeTab.NoteId);
+            if (note != null)
+            {
+                _notesManager.UpdateNote(note.Id, rtf, note.Title, note.Color);
+                NoteContentChanged?.Invoke();
+            }
+        }
+
+        Editor.Focus(FocusState.Programmatic);
+    }
+
     private void Editor_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
+        // In focus mode, show "Exit focus mode" option
+        if (_isFocusMode)
+        {
+            e.Handled = true;
+            var flyout = new MenuFlyout();
+            var exitItem = new MenuFlyoutItem
+            {
+                Text = Lang.T("exit_focus_mode"),
+                Icon = new FontIcon { Glyph = "\uE73F" },
+                KeyboardAcceleratorTextOverride = "Esc"
+            };
+            exitItem.Click += (_, _) => ExitFocusMode();
+            flyout.Items.Add(exitItem);
+            flyout.ShowAt(Editor, e.TryGetPosition(Editor, out var pt)
+                ? new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = pt }
+                : new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions());
+            return;
+        }
+
         if (!IsAiEnabled())
             return;
 
@@ -962,6 +1257,7 @@ public sealed partial class NotepadWindow : Window
 
     private void SaveToNotes_Click(object sender, RoutedEventArgs e)
     {
+        Editor.Document.GetText(TextGetOptions.FormatRtf, out var rtf);
         Editor.Document.GetText(TextGetOptions.None, out var text);
         text = text.TrimEnd('\r', '\n');
         if (string.IsNullOrWhiteSpace(text)) return;
@@ -970,13 +1266,18 @@ public sealed partial class NotepadWindow : Window
         var title = firstLine.Length > 60 ? firstLine[..60] : firstLine;
 
         var note = _notesManager.CreateNote();
-        _notesManager.UpdateNote(note.Id, text, title);
+        _notesManager.UpdateNote(note.Id, rtf, title);
         NoteCreated?.Invoke();
 
-        TitleText.Text = $"{title} \u2014 Bloc-notes";
-
+        // Link active tab to the new note so future edits save to it
         var tab = _tabs.Find(t => t.Id == _activeTabId);
-        if (tab != null) { tab.Title = title; RefreshTabStrip(); }
+        if (tab != null)
+        {
+            tab.NoteId = note.Id;
+            tab.Title = title;
+            TitleText.Text = $"{title} \u2014 {Lang.T("notepad")}";
+            RefreshTabStrip();
+        }
     }
 
     private string GetSaveContent(out string extension)
@@ -1081,13 +1382,15 @@ public sealed partial class NotepadWindow : Window
 
         _switchingTab = true;
         if (file.FileType.Equals(".rtf", StringComparison.OrdinalIgnoreCase))
-            Editor.Document.SetText(TextSetOptions.FormatRtf, content);
+            Editor.Document.SetText(TextSetOptions.FormatRtf, AdaptRtfForTheme(content));
         else
             Editor.Document.SetText(TextSetOptions.None, content);
+        NoteLinkHelper.RepairHiddenLinks(Editor, _notesManager);
         _switchingTab = false;
 
         TitleText.Text = $"{tab.Title} \u2014 Bloc-notes";
         RefreshTabStrip();
+        ApplyEditorThemeColor();
         Editor.Focus(FocusState.Programmatic);
     }
 
@@ -1228,6 +1531,120 @@ public sealed partial class NotepadWindow : Window
         }
 
         Editor.Focus(FocusState.Programmatic);
+    }
+
+    // ── Focus mode ───────────────────────────────────────────────
+
+    private void FocusMode_Click(object sender, RoutedEventArgs e)
+    {
+        _isFocusMode = FocusModeItem.IsChecked;
+        if (_isFocusMode)
+            EnterFocusMode();
+        else
+            ExitFocusMode();
+    }
+
+    private void EnterFocusMode()
+    {
+        _isFocusMode = true;
+        FocusModeItem.IsChecked = true;
+
+        // Animate out: title bar (row 0), menu bar (row 1), toolbar (row 2), status bar (row 4)
+        foreach (var child in RootGrid.Children.OfType<FrameworkElement>())
+        {
+            var row = Grid.GetRow(child);
+            if (row == 0 || row == 1 || row == 2 || row == 4)
+            {
+                AnimationHelper.FadeOut(child, 200, () =>
+                    child.DispatcherQueue.TryEnqueue(() => child.Visibility = Visibility.Collapsed));
+            }
+        }
+
+        Editor.Focus(FocusState.Programmatic);
+    }
+
+    private void ExitFocusMode()
+    {
+        _isFocusMode = false;
+        FocusModeItem.IsChecked = false;
+
+        foreach (var child in RootGrid.Children.OfType<FrameworkElement>())
+        {
+            var row = Grid.GetRow(child);
+            if (row == 0 || row == 1 || row == 2 || row == 4)
+            {
+                child.Visibility = Visibility.Visible;
+                AnimationHelper.FadeIn(child, 200);
+            }
+        }
+
+        Editor.Focus(FocusState.Programmatic);
+    }
+
+    // ── Open note in tab ─────────────────────────────────────────
+
+    private void OpenNote_Click(object sender, RoutedEventArgs e)
+    {
+        var notes = _notesManager.Notes
+            .Where(n => !n.IsArchived)
+            .OrderByDescending(n => n.UpdatedAt)
+            .ToList();
+
+        var flyout = new Flyout();
+        flyout.FlyoutPresenterStyle = ActionPanel.CreateFlyoutPresenterStyle(260, 350);
+
+        var panel = new StackPanel { Spacing = 0 };
+        panel.Children.Add(ActionPanel.CreateHeader(Lang.T("open_note")));
+        panel.Children.Add(ActionPanel.CreateSeparator());
+
+        foreach (var note in notes.Take(20))
+        {
+            var noteRef = note;
+            var btn = new Button
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 6, 10, 6),
+                CornerRadius = new CornerRadius(4),
+            };
+
+            var sp = new StackPanel { Spacing = 2 };
+            sp.Children.Add(new TextBlock
+            {
+                Text = note.Title,
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1
+            });
+
+            var preview = note.Preview;
+            if (!string.IsNullOrEmpty(preview))
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = preview,
+                    FontSize = 11,
+                    Opacity = 0.4,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxLines = 1
+                });
+            }
+
+            btn.Content = sp;
+            btn.Click += (_, _) =>
+            {
+                LoadNoteContent(noteRef.Title, noteRef.Content, noteRef.Id);
+                flyout.Hide();
+            };
+            panel.Children.Add(btn);
+        }
+
+        flyout.Content = panel;
+        flyout.ShouldConstrainToRootBounds = false;
+        flyout.ShowAt(Editor);
     }
 
     private void AutoResizeWindow()
