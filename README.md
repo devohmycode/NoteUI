@@ -4,6 +4,8 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-blue) ![.NET 10](https://img.shields.io/badge/.NET-10.0-purple) ![WinUI 3](https://img.shields.io/badge/WinUI-3-green)
 
+![Image1](https://res.cloudinary.com/dptrimoqv/image/upload/v1774620734/923shots_so_cmegxp.png)
+
 ## Features
 
 ### Notes
@@ -115,6 +117,8 @@ A modern sticky notes application for Windows, built with **WinUI 3** (Windows A
 - In-app download with progress bar and one-click install
 - Release notes link via GitHub Releases
 
+![image2](https://res.cloudinary.com/dptrimoqv/image/upload/v1774620750/560shots_so_ruqitk.png)
+
 ## Installation
 
 Download the latest **NoteUI-Setup.exe** from the [Releases](../../releases) page and run the installer.
@@ -122,6 +126,8 @@ Download the latest **NoteUI-Setup.exe** from the [Releases](../../releases) pag
 Options during installation:
 - Create a desktop shortcut
 - Launch at Windows startup
+
+![image3](https://res.cloudinary.com/dptrimoqv/image/upload/v1774620735/58shots_so_jt8fej.png)
 
 ## Build from Source
 
