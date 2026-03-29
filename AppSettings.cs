@@ -666,6 +666,151 @@ public static class AppSettings
         return null;
     }
 
+    public static void SaveWidgetModules(Dictionary<string, bool> modules)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetModules"] = modules });
+    }
+
+    public static Dictionary<string, bool> LoadWidgetModules()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("widgetModules", out var prop))
+                {
+                    var result = new Dictionary<string, bool>();
+                    foreach (var p in prop.EnumerateObject())
+                        result[p.Name] = p.Value.GetBoolean();
+                    return result;
+                }
+            }
+        }
+        catch { }
+        // Default: clipboard and favorites enabled
+        return new Dictionary<string, bool>
+        {
+            ["clipboard"] = true,
+            ["notes"] = false,
+            ["favorites"] = true,
+            ["folders"] = false,
+            ["snippets"] = false,
+        };
+    }
+
+    public static void SaveWidgetEnabled(bool enabled)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetEnabled"] = enabled });
+    }
+
+    public static bool LoadWidgetEnabled()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("widgetEnabled", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static void SaveWidgetPosition(int x, int y)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetX"] = x, ["widgetY"] = y });
+    }
+
+    public static void SaveWidgetSize(int w, int h)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetW"] = w, ["widgetH"] = h });
+    }
+
+    public static (int W, int H)? LoadWidgetSize()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            var json = File.ReadAllText(SettingsPath);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("widgetW", out var wProp) &&
+                doc.RootElement.TryGetProperty("widgetH", out var hProp) &&
+                wProp.TryGetInt32(out var w) &&
+                hProp.TryGetInt32(out var h))
+            {
+                return (w, h);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static void SaveWidgetOpacity(double opacity)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetOpacity"] = opacity });
+    }
+
+    public static double LoadWidgetOpacity()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("widgetOpacity", out var prop))
+                    return prop.GetDouble();
+            }
+        }
+        catch { }
+        return 1.0;
+    }
+
+    public static void SaveWidgetCompact(bool compact)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["widgetCompact"] = compact });
+    }
+
+    public static bool LoadWidgetCompact()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("widgetCompact", out var prop))
+                    return prop.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public static (int X, int Y)? LoadWidgetPosition()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            var json = File.ReadAllText(SettingsPath);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("widgetX", out var xProp) &&
+                doc.RootElement.TryGetProperty("widgetY", out var yProp) &&
+                xProp.TryGetInt32(out var x) &&
+                yProp.TryGetInt32(out var y))
+            {
+                return (x, y);
+            }
+        }
+        catch { }
+        return null;
+    }
+
     public static void SaveMainWindowPosition(Windows.Graphics.PointInt32 position, Windows.Graphics.SizeInt32 size)
     {
         MergeAndSaveSettings(new Dictionary<string, object>

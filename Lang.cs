@@ -214,6 +214,19 @@ public static class Lang
             ["focus_mode"] = "Focus mode",
             ["exit_focus_mode"] = "Exit focus mode",
 
+            // ── Clipboard history ─────────────────────────────────
+            ["clipboard_history"] = "Clipboard",
+            ["no_clipboard_entries"] = "No clipboard entries",
+            ["clipboard_save_as_note"] = "Save as note",
+            ["clipboard_actions"] = "Clipboard",
+            ["clipboard_image"] = "Image",
+            ["clipboard_clear_all"] = "Clear all",
+            ["clipboard_just_now"] = "Just now",
+            ["clipboard_minutes_ago"] = "{0}m ago",
+            ["clipboard_hours_ago"] = "{0}h ago",
+            ["clipboard_yesterday"] = "Yesterday",
+            ["clipboard_days_ago"] = "{0}d ago",
+
             // ── Snippet ───────────────────────────────────────────
             ["snippet"] = "Snippet",
             ["snippet_keyword"] = "Keyword",
@@ -222,6 +235,18 @@ public static class Lang
             ["snippet_none"] = "None",
             ["snippet_preview"] = "Type {0} then Space to expand",
             ["snippet_saved"] = "Snippet saved",
+            ["snippet_category"] = "Category",
+            ["snippet_category_placeholder"] = "e.g. E-mail, URL, Code",
+            ["no_snippets"] = "No snippets",
+            ["clipboard_widget"] = "Clipboard widget",
+            ["widget"] = "Widget",
+            ["widget_clipboard"] = "Clipboard",
+            ["widget_notes"] = "Notes",
+            ["widget_favorites"] = "Favorites",
+            ["widget_folders"] = "Folders",
+            ["widget_snippets"] = "Snippets",
+            ["widget_enable"] = "Enable widget",
+            ["widget_disable"] = "Disable widget",
 
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Select a zone",
@@ -591,6 +616,19 @@ public static class Lang
             ["focus_mode"] = "Mode focus",
             ["exit_focus_mode"] = "Quitter le mode focus",
 
+            // ── Clipboard history ─────────────────────────────────
+            ["clipboard_history"] = "Presse-papiers",
+            ["no_clipboard_entries"] = "Aucun contenu copié",
+            ["clipboard_save_as_note"] = "Enregistrer en note",
+            ["clipboard_actions"] = "Presse-papiers",
+            ["clipboard_image"] = "Image",
+            ["clipboard_clear_all"] = "Tout effacer",
+            ["clipboard_just_now"] = "À l'instant",
+            ["clipboard_minutes_ago"] = "Il y a {0} min",
+            ["clipboard_hours_ago"] = "Il y a {0}h",
+            ["clipboard_yesterday"] = "Hier",
+            ["clipboard_days_ago"] = "Il y a {0}j",
+
             // ── Snippet ───────────────────────────────────────────
             ["snippet"] = "Snippet",
             ["snippet_keyword"] = "Mot clé",
@@ -599,6 +637,18 @@ public static class Lang
             ["snippet_none"] = "Aucun",
             ["snippet_preview"] = "Tapez {0} puis Espace pour insérer",
             ["snippet_saved"] = "Snippet enregistré",
+            ["snippet_category"] = "Catégorie",
+            ["snippet_category_placeholder"] = "ex. E-mail, URL, Code",
+            ["no_snippets"] = "Aucun snippet",
+            ["clipboard_widget"] = "Widget presse-papiers",
+            ["widget"] = "Widget",
+            ["widget_clipboard"] = "Presse-papiers",
+            ["widget_notes"] = "Notes",
+            ["widget_favorites"] = "Favoris",
+            ["widget_folders"] = "Dossiers",
+            ["widget_snippets"] = "Snippets",
+            ["widget_enable"] = "Activer le widget",
+            ["widget_disable"] = "Désactiver le widget",
 
             // ── OCR ─────────────────────────────────────────────
             ["ocr_select_zone"] = "Sélectionnez une zone",

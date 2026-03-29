@@ -27,8 +27,10 @@ public sealed partial class MainWindow : Window
     private VoiceNoteWindow? _voiceNoteWindow;
 
     private NotepadWindow? _notepadWindow;
+    private TaskbarWidget? _taskbarWidget;
 
     private readonly SnippetManager _snippetManager = new();
+    private readonly ClipboardHistoryManager _clipboardHistory = new();
     private TextExpansionService? _textExpansion;
 
     private AiManager? _aiManager;
@@ -38,7 +40,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<string, NoteWindow> _attachedNoteWindows = new();
     private readonly Dictionary<string, IntPtr> _attachedTargetHwnds = new();
 
-    private enum ViewMode { Notes, Favorites, Tags, TagFilter, Folders, FolderFilter, Archive }
+    private enum ViewMode { Notes, Favorites, Tags, TagFilter, Folders, FolderFilter, Archive, Clipboard }
     private ViewMode _currentView = ViewMode.Notes;
     private string? _currentTagFilter;
     private string? _currentFolderFilter;
@@ -117,6 +119,20 @@ public sealed partial class MainWindow : Window
 
         // Clipboard source tracking
         _clipboardMonitor = new ClipboardMonitor(this);
+        _clipboardHistory.Load();
+        _clipboardMonitor.EntryAdded += entry =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_clipboardHistory.IsDuplicate(entry.TextContent))
+                {
+                    _clipboardHistory.AddEntry(entry);
+                    if (_currentView == ViewMode.Clipboard)
+                        RefreshCurrentView();
+                    // TaskbarWidget flyouts rebuild dynamically on each open
+                }
+            });
+        };
 
         // Global hotkeys
         RegisterGlobalHotkeys();
@@ -184,6 +200,20 @@ public sealed partial class MainWindow : Window
 
         // Check for updates in background
         _ = CheckForUpdateOnStartupAsync();
+
+        // Restore widget if it was enabled
+        if (AppSettings.LoadWidgetEnabled())
+        {
+            _taskbarWidget = new TaskbarWidget(_clipboardHistory, _snippetManager, _notes);
+            _taskbarWidget.Closed += (_, _) =>
+            {
+                _taskbarWidget = null;
+                AppSettings.SaveWidgetEnabled(false);
+            };
+            _taskbarWidget.OpenNoteRequested += noteId =>
+                DispatcherQueue.TryEnqueue(() => { this.Activate(); OpenNote(noteId); });
+            _taskbarWidget.Activate();
+        }
     }
 
     private void ApplyLocalization()
@@ -734,6 +764,11 @@ public sealed partial class MainWindow : Window
             {
                 _notes.TogglePin(noteId);
                 RefreshCurrentView();
+            }),
+            new(note?.IsFavorite == true ? "\uE735" : "\uE734",
+                note?.IsFavorite == true ? Lang.T("remove_favorite") : Lang.T("add_favorite"), [], () =>
+            {
+                if (note != null) { note.IsFavorite = !note.IsFavorite; _notes.Save(); RefreshCurrentView(); }
             }),
             new("\uE70F", Lang.T("edit"), [], () => OpenNote(noteId)),
             new("\uE8C8", Lang.T("duplicate"), [], () =>
@@ -2018,7 +2053,20 @@ public sealed partial class MainWindow : Window
             {
                 AppSettings.SaveCompactCards(enabled);
                 RefreshCurrentView();
-            });
+            },
+            onShowWidget: flyout =>
+            {
+                ActionPanel.ShowWidgetSubPanel(flyout,
+                    onToggle: ToggleClipboardWidget,
+                    modules: AppSettings.LoadWidgetModules(),
+                    isEnabled: _taskbarWidget != null,
+                    onModulesChanged: modules =>
+                    {
+                        AppSettings.SaveWidgetModules(modules);
+                        _taskbarWidget?.BuildButtons();
+                    });
+            },
+            onQuit: ExitApplication);
 
         flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedRight;
         flyout.ShowAt(sender as FrameworkElement);
@@ -2207,6 +2255,13 @@ public sealed partial class MainWindow : Window
                                 await Task.Delay(300);
                                 PasteAsNewNote();
                             });
+                        });
+                    break;
+                case "clipboard_widget":
+                    _hotkeyService.Register(HotkeyService.HOTKEY_CLIPBOARD_WIDGET,
+                        s.Modifiers, s.VirtualKey, () =>
+                        {
+                            DispatcherQueue.TryEnqueue(ToggleClipboardWidget);
                         });
                     break;
             }
@@ -2619,7 +2674,7 @@ public sealed partial class MainWindow : Window
             new("\uE8B7", Lang.T("folders"), [], () => SwitchView(ViewMode.Folders)),
             new("\uE1CB", Lang.T("tags"), [], () => SwitchView(ViewMode.Tags)),
             new("\uE7B8", Lang.T("archive"), [], () => SwitchView(ViewMode.Archive)),
-            new("\uE7E8", Lang.T("quit"), [], ExitApplication, IsDestructive: true),
+            new("\uE16F", Lang.T("clipboard_history"), [], () => SwitchView(ViewMode.Clipboard)),
         };
 
         var flyout = ActionPanel.Create(Lang.T("quick_access"), actions);
@@ -2697,6 +2752,10 @@ public sealed partial class MainWindow : Window
             case ViewMode.Archive:
                 TitleLabel.Text = Lang.T("archive");
                 ShowArchived(SearchBox.Text);
+                break;
+            case ViewMode.Clipboard:
+                TitleLabel.Text = Lang.T("clipboard_history");
+                ShowClipboardHistory(SearchBox.Text);
                 break;
         }
     }
@@ -3015,6 +3074,319 @@ public sealed partial class MainWindow : Window
         };
 
         return border;
+    }
+
+    // ── Clipboard History ───────────────────────────────────
+
+    private void ShowClipboardHistory(string? search = null)
+    {
+        ResetExpandedState();
+        NotesList.Children.Clear();
+        var entries = _clipboardHistory.GetSorted();
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            entries = entries.Where(e =>
+                (e.TextContent ?? "").Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                (e.SourceTitle ?? "").Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                (e.SourceExePath != null && Path.GetFileName(e.SourceExePath).Contains(search, StringComparison.OrdinalIgnoreCase))
+            ).ToList();
+        }
+
+        if (entries.Count == 0)
+        {
+            NotesList.Children.Add(CreateEmptyState("\uE16F", Lang.T("no_clipboard_entries")));
+            return;
+        }
+
+        // Add clear all button at top
+        var clearBtn = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children =
+                {
+                    new FontIcon { Glyph = "\uE74D", FontSize = 12 },
+                    new TextBlock { Text = Lang.T("clipboard_clear_all"), FontSize = 12 }
+                }
+            },
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+        };
+        clearBtn.Click += (_, _) =>
+        {
+            _clipboardHistory.Clear();
+            RefreshCurrentView();
+        };
+        NotesList.Children.Add(clearBtn);
+
+        var index = 0;
+        foreach (var entry in entries)
+        {
+            var card = CreateClipboardCard(entry);
+            NotesList.Children.Add(card);
+            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
+            index++;
+        }
+    }
+
+    private UIElement CreateClipboardCard(ClipboardHistoryEntry entry)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(ThemeHelper.CardBackground),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 10, 14, 14),
+            Margin = new Thickness(0, 0, 0, 0),
+            Tag = entry.Id
+        };
+
+        var stack = new StackPanel();
+
+        // Source row
+        var sourceRow = new Grid();
+        sourceRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        sourceRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var sourcePanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 5
+        };
+
+        if (!string.IsNullOrEmpty(entry.SourceExePath))
+        {
+            var sourceIcon = new Image
+            {
+                Width = 14,
+                Height = 14,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _ = IconHelper.LoadIconAsync(sourceIcon, entry.SourceExePath);
+            sourcePanel.Children.Add(sourceIcon);
+        }
+
+        var appName = !string.IsNullOrEmpty(entry.SourceTitle)
+            ? entry.SourceTitle
+            : !string.IsNullOrEmpty(entry.SourceExePath)
+                ? Path.GetFileNameWithoutExtension(entry.SourceExePath)
+                : "";
+
+        if (!string.IsNullOrEmpty(appName))
+        {
+            sourcePanel.Children.Add(new TextBlock
+            {
+                Text = appName,
+                FontSize = 11,
+                Opacity = 0.5,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+
+        if (entry.IsPinned)
+        {
+            sourcePanel.Children.Add(new FontIcon
+            {
+                Glyph = "\uE718",
+                FontSize = 10,
+                Opacity = 0.45,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+
+        Grid.SetColumn(sourcePanel, 0);
+        sourceRow.Children.Add(sourcePanel);
+
+        var timeText = new TextBlock
+        {
+            Text = ClipboardHistoryManager.GetRelativeTime(entry.CapturedAt),
+            FontSize = 11,
+            Opacity = 0.45,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(timeText, 1);
+        sourceRow.Children.Add(timeText);
+
+        stack.Children.Add(sourceRow);
+
+        // Content
+        if (entry.ContentType == "image" && entry.ImageData != null)
+        {
+            var img = new Image
+            {
+                MaxHeight = 80,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            stack.Children.Add(img);
+            _ = LoadThumbnailAsync(img, entry.ImageData);
+        }
+        else if (!string.IsNullOrEmpty(entry.TextContent))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = entry.Preview,
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 3,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                FontSize = 13,
+                Margin = new Thickness(0, 4, 0, 0),
+                Opacity = 0.65,
+            });
+        }
+
+        border.Child = stack;
+
+        // Drag-and-drop support
+        border.CanDrag = true;
+        border.DragStarting += async (s, args) =>
+        {
+            args.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            if (entry.ContentType == "image" && entry.ImageData != null)
+            {
+                // Write image to temp file for Explorer drop
+                var tempPath = Path.Combine(Path.GetTempPath(), $"NoteUI_clip_{entry.Id[..8]}.png");
+                await File.WriteAllBytesAsync(tempPath, entry.ImageData);
+                var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(tempPath);
+                args.Data.SetStorageItems(new[] { file });
+                // Also set bitmap for apps that accept bitmap drops
+                var stream = new InMemoryRandomAccessStream();
+                await stream.WriteAsync(entry.ImageData.AsBuffer());
+                stream.Seek(0);
+                args.Data.SetBitmap(Windows.Storage.Streams.RandomAccessStreamReference.CreateFromStream(stream));
+            }
+            else if (!string.IsNullOrEmpty(entry.TextContent))
+            {
+                args.Data.SetText(entry.TextContent);
+                if (!string.IsNullOrEmpty(entry.RtfContent))
+                    args.Data.SetRtf(entry.RtfContent);
+            }
+        };
+
+        var entryId = entry.Id;
+        border.Tapped += (_, _) => CopyClipboardEntryBack(entryId);
+        border.RightTapped += (s, e) =>
+        {
+            e.Handled = true;
+            ShowClipboardContextMenu(entryId, (FrameworkElement)s);
+        };
+
+        return border;
+    }
+
+    private void CopyClipboardEntryBack(string entryId)
+    {
+        var entry = _clipboardHistory.Entries.FirstOrDefault(e => e.Id == entryId);
+        if (entry == null) return;
+
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            if (!string.IsNullOrEmpty(entry.TextContent))
+                package.SetText(entry.TextContent);
+            if (!string.IsNullOrEmpty(entry.RtfContent))
+                package.SetRtf(entry.RtfContent);
+            if (entry.ImageData != null)
+            {
+                var stream = new InMemoryRandomAccessStream();
+                stream.WriteAsync(entry.ImageData.AsBuffer()).GetResults();
+                stream.Seek(0);
+                package.SetBitmap(Windows.Storage.Streams.RandomAccessStreamReference.CreateFromStream(stream));
+            }
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        }
+        catch { }
+    }
+
+    private void ShowClipboardContextMenu(string entryId, FrameworkElement target)
+    {
+        var entry = _clipboardHistory.Entries.FirstOrDefault(e => e.Id == entryId);
+        if (entry == null) return;
+
+        var pinLabel = entry.IsPinned ? Lang.T("unpin") : Lang.T("pin");
+        var pinGlyph = entry.IsPinned ? "\uE77A" : "\uE718";
+
+        Flyout? flyout = null;
+
+        var actions = new List<ActionPanel.ActionItem>
+        {
+            new(pinGlyph, pinLabel, [], () =>
+            {
+                _clipboardHistory.TogglePin(entryId);
+                RefreshCurrentView();
+            }),
+            new("\uE78C", Lang.T("clipboard_save_as_note"), [], () =>
+            {
+                var note = _notes.CreateNote();
+                if (!string.IsNullOrEmpty(entry.TextContent))
+                {
+                    var firstLine = entry.TextContent.Split('\n')[0].Trim();
+                    if (firstLine.Length > 50) firstLine = firstLine[..50] + "...";
+                    note.Title = firstLine;
+                    note.Content = entry.RtfContent ?? entry.TextContent;
+                }
+                note.SourceExePath = entry.SourceExePath;
+                note.SourceTitle = entry.SourceTitle;
+                _notes.Save(localOnly: true);
+                SwitchView(ViewMode.Notes);
+                OpenNote(note.Id);
+            }),
+        };
+
+        if (entry.ContentType == "text")
+        {
+            actions.Add(new("\uE943", Lang.T("snippet"), [], () =>
+            {
+                var note = _notes.CreateNote();
+                var text = entry.TextContent ?? "";
+                var firstLine = text.Split('\n')[0].Trim();
+                note.Title = firstLine.Length > 50 ? firstLine[..50] : firstLine;
+                note.Content = entry.RtfContent ?? text;
+                note.SourceExePath = entry.SourceExePath;
+                note.SourceTitle = entry.SourceTitle;
+                _notes.Save(localOnly: true);
+                flyout?.Hide();
+                DispatcherQueue.TryEnqueue(() =>
+                    ActionPanel.ShowSnippetFlyout(target, note.Id, _snippetManager, note.Content));
+            }));
+        }
+
+        actions.Add(new("\uE74D", Lang.T("delete"), [], () =>
+        {
+            _clipboardHistory.RemoveEntry(entryId);
+            RefreshCurrentView();
+        }, IsDestructive: true));
+
+        flyout = ActionPanel.Create(Lang.T("clipboard_actions"), actions);
+        flyout.ShowAt(target);
+    }
+
+    private void ToggleClipboardWidget()
+    {
+        if (_taskbarWidget != null)
+        {
+            _taskbarWidget.Close();
+            AppSettings.SaveWidgetEnabled(false);
+            return;
+        }
+        _taskbarWidget = new TaskbarWidget(_clipboardHistory, _snippetManager, _notes);
+        _taskbarWidget.Closed += (_, _) =>
+        {
+            _taskbarWidget = null;
+            AppSettings.SaveWidgetEnabled(false);
+        };
+        _taskbarWidget.OpenNoteRequested += noteId =>
+            DispatcherQueue.TryEnqueue(() => { this.Activate(); OpenNote(noteId); });
+        _taskbarWidget.AppWindow.Show(activateWindow: false);
+        AppSettings.SaveWidgetEnabled(true);
     }
 
     private static UIElement CreateEmptyState(string glyph, string message)
