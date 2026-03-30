@@ -326,6 +326,65 @@ public static class AppSettings
         MergeAndSaveSettings(new Dictionary<string, object> { ["notesFolder"] = folder });
     }
 
+    // ── Local profiles ────────────────────────────────────────
+
+    public static string LoadActiveProfile()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("activeProfile", out var prop))
+                    return prop.GetString() ?? "";
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    public static void SaveActiveProfile(string name)
+    {
+        MergeAndSaveSettings(new Dictionary<string, object> { ["activeProfile"] = name });
+    }
+
+    public static List<string> LoadProfiles()
+    {
+        var profiles = new List<string>();
+        try
+        {
+            var dir = Path.Combine(SettingsDir, "profiles");
+            if (Directory.Exists(dir))
+            {
+                foreach (var file in Directory.GetFiles(dir, "*.json"))
+                    profiles.Add(Path.GetFileNameWithoutExtension(file));
+            }
+        }
+        catch { }
+        profiles.Sort(StringComparer.OrdinalIgnoreCase);
+        return profiles;
+    }
+
+    public static string GetProfilePath(string name)
+    {
+        var dir = Path.Combine(SettingsDir, "profiles");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, $"{name}.json");
+    }
+
+    public static void DeleteProfile(string name)
+    {
+        try
+        {
+            var path = GetProfilePath(name);
+            if (File.Exists(path)) File.Delete(path);
+            if (LoadActiveProfile() == name)
+                SaveActiveProfile("");
+        }
+        catch { }
+    }
+
     // ── Firebase ───────────────────────────────────────────────
 
     public static (string Url, string ApiKey, string RefreshToken) LoadFirebaseSettings()
@@ -432,6 +491,36 @@ public static class AppSettings
             ["webdavUrl"] = url,
             ["webdavUser"] = username,
             ["webdavPass"] = password
+        });
+    }
+
+    // ── OneNote ────────────────────────────────────────────────
+
+    public static (string ClientId, string RefreshToken) LoadOneNoteSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var doc = JsonDocument.Parse(json);
+                var clientId = doc.RootElement.TryGetProperty("onenoteClientId", out var cProp)
+                    ? cProp.GetString() ?? "" : "";
+                var token = doc.RootElement.TryGetProperty("onenoteRefreshToken", out var tProp)
+                    ? tProp.GetString() ?? "" : "";
+                return (clientId, token);
+            }
+        }
+        catch { }
+        return ("", "");
+    }
+
+    public static void SaveOneNoteSettings(string clientId, string refreshToken = "")
+    {
+        MergeAndSaveSettings(new Dictionary<string, object>
+        {
+            ["onenoteClientId"] = clientId,
+            ["onenoteRefreshToken"] = refreshToken
         });
     }
 
@@ -899,6 +988,11 @@ public static class AppSettings
 
     public static void SaveOpenWindows(IEnumerable<PersistedWindowState> windows)
     {
+        SaveOpenWindows(windows, "openWindows");
+    }
+
+    public static void SaveOpenWindows(IEnumerable<PersistedWindowState> windows, string key)
+    {
         var payload = windows.Select(w => new Dictionary<string, object>
         {
             ["type"] = w.Type,
@@ -910,8 +1004,50 @@ public static class AppSettings
 
         MergeAndSaveSettings(new Dictionary<string, object>
         {
-            ["openWindows"] = payload
+            [key] = payload
         });
+    }
+
+    public static List<PersistedWindowState> LoadOpenWindows(string key)
+    {
+        var result = new List<PersistedWindowState>();
+        try
+        {
+            if (!File.Exists(SettingsPath)) return result;
+            var json = File.ReadAllText(SettingsPath);
+            var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty(key, out var windowsProp)) return result;
+
+            var arrayElement = windowsProp;
+            JsonDocument? nestedDoc = null;
+            if (windowsProp.ValueKind == JsonValueKind.String)
+            {
+                var raw = windowsProp.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    nestedDoc = JsonDocument.Parse(raw);
+                    arrayElement = nestedDoc.RootElement;
+                }
+            }
+
+            if (arrayElement.ValueKind != JsonValueKind.Array) { nestedDoc?.Dispose(); return result; }
+
+            foreach (var item in arrayElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var type = item.TryGetProperty("type", out var tp) ? tp.GetString() ?? "" : "";
+                var noteId = item.TryGetProperty("noteId", out var np) ? np.GetString() ?? "" : "";
+                if (!item.TryGetProperty("x", out var xp) || !item.TryGetProperty("y", out var yp)
+                    || !xp.TryGetInt32(out var x) || !yp.TryGetInt32(out var y)
+                    || string.IsNullOrWhiteSpace(type)) continue;
+                var isCompact = item.TryGetProperty("isCompact", out var cp)
+                    && cp.ValueKind is JsonValueKind.True or JsonValueKind.False && cp.GetBoolean();
+                result.Add(new PersistedWindowState(type, noteId, x, y, isCompact));
+            }
+            nestedDoc?.Dispose();
+        }
+        catch { }
+        return result;
     }
 
     private static void MergeAndSaveSettings(Dictionary<string, object> newValues)

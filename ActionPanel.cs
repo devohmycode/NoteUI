@@ -192,6 +192,12 @@ public static class ActionPanel
         Action onChangeFolder, Action onResetFolder,
         Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
         Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        bool isOneNoteConnected = false, string? oneNoteUser = null,
+        string? activeProfile = null, List<string>? profiles = null,
+        Action<string>? onSwitchProfile = null, Action? onCreateProfile = null,
+        Action<string, Action>? onRenameProfile = null, Action<string>? onDeleteProfile = null,
+        Func<string>? getActiveProfile = null, Func<List<string>>? getProfiles = null,
+        Action? onConfigureOneNote = null, Action? onDisconnectOneNote = null, Action? onSyncOneNote = null,
         Action<Flyout>? onShowVoiceModels = null,
         Action<Flyout>? onShowShortcuts = null,
         string? currentLanguage = null, bool slashEnabled = true,
@@ -304,17 +310,27 @@ public static class ActionPanel
         var isCustomFolder = !string.Equals(currentNotesFolder, defaultNotesFolder, StringComparison.OrdinalIgnoreCase);
         var storageSubMenu = CreateStorageSubMenu(
             isCustomFolder, isFirebaseConnected, isWebDavConnected,
+            isOneNoteConnected,
             currentNotesFolder, firebaseEmail, webDavUrl,
+            oneNoteUser,
+            activeProfile ?? "", profiles ?? [],
             onResetFolder, onChangeFolder,
+            onSwitchProfile ?? (_ => { }), onCreateProfile ?? (() => { }),
+            onRenameProfile ?? ((_, _) => { }), onDeleteProfile ?? (_ => { }),
             onConfigureFirebase, onDisconnectFirebase, onSyncFirebase,
             onConfigureWebDav, onDisconnectWebDav, onSyncWebDav,
+            onConfigureOneNote ?? (() => { }), onDisconnectOneNote ?? (() => { }), onSyncOneNote ?? (() => { }),
+            getActiveProfile ?? (() => activeProfile ?? ""),
+            getProfiles ?? (() => profiles ?? []),
             () => flyout.Hide());
-        var storageValue = isFirebaseConnected ? Lang.T("cloud")
+        var storageValue = isFirebaseConnected ? "Firebase"
             : isWebDavConnected ? "WebDAV"
+            : isOneNoteConnected ? "OneNote"
+            : !string.IsNullOrEmpty(activeProfile) ? activeProfile
             : isCustomFolder ? Lang.T("custom_folder")
             : Lang.T("local");
         var storageBtn = CreateCascadeButton(Lang.T("storage"), storageValue, storageSubMenu, "\uE753");
-        storageBtn.Tag = Lang.T("storage") + " Cloud Firebase WebDAV Local";
+        storageBtn.Tag = Lang.T("storage") + " Firebase WebDAV OneNote Local";
         allButtons.Add(storageBtn);
         panel.Children.Add(storageBtn);
 
@@ -476,57 +492,146 @@ public static class ActionPanel
 
     private static Flyout CreateStorageSubMenu(
         bool isCustomFolder, bool isFirebaseConnected, bool isWebDavConnected,
+        bool isOneNoteConnected,
         string currentNotesFolder, string? firebaseEmail, string? webDavUrl,
+        string? oneNoteUser,
+        string activeProfile, List<string> profiles,
         Action onResetFolder, Action onChangeFolder,
+        Action<string> onSwitchProfile, Action onCreateProfile,
+        Action<string, Action> onRenameProfile, Action<string> onDeleteProfile,
         Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
         Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        Action onConfigureOneNote, Action onDisconnectOneNote, Action onSyncOneNote,
+        Func<string> getActiveProfile, Func<List<string>> getProfiles,
         Action onDone)
     {
         var flyout = new Flyout
         {
             Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.RightEdgeAlignedTop,
-            FlyoutPresenterStyle = CreateFlyoutPresenterStyle(200, 300)
+            FlyoutPresenterStyle = CreateFlyoutPresenterStyle(210, 360)
         };
 
         var panel = new StackPanel { Spacing = 0 };
 
-        bool isLocal = !isFirebaseConnected && !isWebDavConnected && !isCustomFolder;
-        panel.Children.Add(CreateCheckItem(Lang.T("local"), isLocal, () =>
+        void RebuildPanel()
         {
-            if (isCustomFolder) onResetFolder(); else if (isFirebaseConnected) onDisconnectFirebase();
-            onDone();
-        }));
+            panel.Children.Clear();
+            var currentProfiles = getProfiles();
+            var currentActive = getActiveProfile();
+            bool cloudConnected = isFirebaseConnected || isWebDavConnected || isOneNoteConnected;
 
-        var folderLabel = isCustomFolder ? $"{Lang.T("custom_folder")} — {ShortenPath(currentNotesFolder)}" : Lang.T("custom_folder");
-        panel.Children.Add(CreateCheckItem(folderLabel, isCustomFolder && !isFirebaseConnected, () =>
-        {
-            onChangeFolder(); onDone();
-        }));
+            // ── Local (default) ──
+            bool defaultLocal = !cloudConnected && !isCustomFolder && string.IsNullOrEmpty(currentActive);
+            panel.Children.Add(CreateCheckItem(Lang.T("local"), defaultLocal, () =>
+            {
+                onSwitchProfile("");
+                onDone();
+            }));
 
-        panel.Children.Add(CreateSeparator());
+            // ── Profiles ──
+            foreach (var p in currentProfiles)
+            {
+                var name = p;
+                bool active = !cloudConnected && string.Equals(currentActive, name, StringComparison.OrdinalIgnoreCase);
+                var profileBtn = CreateCheckItem(name, active, () =>
+                {
+                    onSwitchProfile(name);
+                    onDone();
+                });
 
-        if (isFirebaseConnected)
-        {
-            var cloudLabel = !string.IsNullOrEmpty(firebaseEmail) ? $"{Lang.T("cloud")} — {firebaseEmail}" : Lang.T("cloud");
-            panel.Children.Add(CreateCheckItem(cloudLabel, true, () => { onSyncFirebase(); onDone(); }));
-            panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectFirebase(); onDone(); }));
+                var ctxFlyout = new Flyout
+                {
+                    Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.RightEdgeAlignedTop,
+                    FlyoutPresenterStyle = CreateFlyoutPresenterStyle(140, 80)
+                };
+                var ctxPanel = new StackPanel { Spacing = 0 };
+                ctxPanel.Children.Add(CreateActionItem(Lang.T("rename"), () =>
+                {
+                    ctxFlyout.Hide();
+                    onRenameProfile(name, RebuildPanel);
+                }));
+
+                var deleteBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    CornerRadius = new CornerRadius(4),
+                    MinHeight = 0,
+                    Content = new TextBlock
+                    {
+                        Text = Lang.T("delete"),
+                        FontSize = 12,
+                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 235, 70, 70))
+                    }
+                };
+                deleteBtn.Click += (_, _) =>
+                {
+                    ctxFlyout.Hide();
+                    onDeleteProfile(name);
+                    RebuildPanel();
+                };
+                ctxPanel.Children.Add(deleteBtn);
+
+                ctxFlyout.Content = ctxPanel;
+                profileBtn.ContextFlyout = ctxFlyout;
+                panel.Children.Add(profileBtn);
+            }
+
+            // ── New profile button ──
+            panel.Children.Add(CreateActionItem("+ " + Lang.T("new_profile"), () => { onCreateProfile(); onDone(); }));
+
+            panel.Children.Add(CreateSeparator());
+
+            // ── Custom folder ──
+            var folderLabel = isCustomFolder ? $"{Lang.T("custom_folder")} — {ShortenPath(currentNotesFolder)}" : Lang.T("custom_folder");
+            panel.Children.Add(CreateCheckItem(folderLabel, isCustomFolder && !cloudConnected, () =>
+            {
+                onChangeFolder(); onDone();
+            }));
+
+            panel.Children.Add(CreateSeparator());
+
+            // ── Firebase ──
+            if (isFirebaseConnected)
+            {
+                var fbLabel = !string.IsNullOrEmpty(firebaseEmail) ? $"Firebase — {firebaseEmail}" : "Firebase";
+                panel.Children.Add(CreateCheckItem(fbLabel, true, () => { onSyncFirebase(); onDone(); }));
+                panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectFirebase(); onDone(); }));
+            }
+            else
+            {
+                panel.Children.Add(CreateCheckItem("Firebase", false, () => { onConfigureFirebase(); onDone(); }));
+            }
+
+            // ── WebDAV ──
+            if (isWebDavConnected)
+            {
+                var wdLabel = !string.IsNullOrEmpty(webDavUrl) ? $"WebDAV — {ShortenPath(webDavUrl)}" : "WebDAV";
+                panel.Children.Add(CreateCheckItem(wdLabel, true, () => { onSyncWebDav(); onDone(); }));
+                panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectWebDav(); onDone(); }));
+            }
+            else
+            {
+                panel.Children.Add(CreateCheckItem("WebDAV", false, () => { onConfigureWebDav(); onDone(); }));
+            }
+
+            // ── OneNote ──
+            if (isOneNoteConnected)
+            {
+                var onLabel = !string.IsNullOrEmpty(oneNoteUser) ? $"OneNote — {oneNoteUser}" : "OneNote";
+                panel.Children.Add(CreateCheckItem(onLabel, true, () => { onSyncOneNote(); onDone(); }));
+                panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectOneNote(); onDone(); }));
+            }
+            else
+            {
+                panel.Children.Add(CreateCheckItem("OneNote", false, () => { onConfigureOneNote(); onDone(); }));
+            }
         }
-        else
-        {
-            panel.Children.Add(CreateCheckItem(Lang.T("cloud"), false, () => { onConfigureFirebase(); onDone(); }));
-        }
 
-        if (isWebDavConnected)
-        {
-            var wdLabel = !string.IsNullOrEmpty(webDavUrl) ? $"WebDAV — {ShortenPath(webDavUrl)}" : "WebDAV";
-            panel.Children.Add(CreateCheckItem(wdLabel, true, () => { onSyncWebDav(); onDone(); }));
-            panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectWebDav(); onDone(); }));
-        }
-        else
-        {
-            panel.Children.Add(CreateCheckItem("WebDAV", false, () => { onConfigureWebDav(); onDone(); }));
-        }
-
+        RebuildPanel();
         flyout.Content = panel;
         return flyout;
     }

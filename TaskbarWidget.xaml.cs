@@ -211,6 +211,13 @@ public sealed partial class TaskbarWidget : Window
         var fgHwnd = GetForegroundWindow();
         if (fgHwnd == IntPtr.Zero || fgHwnd == _hWnd) return false;
 
+        // Ignore the desktop window (clicking the desktop should not hide the widget)
+        if (fgHwnd == GetShellWindow()) return false;
+        var className = new System.Text.StringBuilder(256);
+        GetClassName(fgHwnd, className, className.Capacity);
+        var cls = className.ToString();
+        if (cls is "Progman" or "WorkerW") return false;
+
         if (!GetWindowRect(fgHwnd, out var wndRect)) return false;
 
         // Get the monitor that contains the foreground window
@@ -894,6 +901,12 @@ public sealed partial class TaskbarWidget : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
