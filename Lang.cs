@@ -182,6 +182,20 @@ public static class Lang
             ["username"] = "Username",
             ["url_user_required"] = "URL and username required",
 
+            // ── OneNote ─────────────────────────────────────────
+            ["onenote_not_configured"] = "OneNote not configured",
+            ["onenote_auth_success"] = "OneNote connected",
+            ["onenote_client_id_help"] = "Register an app in Azure AD (Entra ID) with redirect http://localhost. Copy the Application (client) ID here.",
+            ["onenote_client_id_required"] = "Client ID required",
+            ["close_window"] = "You can close this window.",
+            ["timeout"] = "Timeout",
+            ["auth_cancelled"] = "Authentication cancelled",
+            ["import_sticky_notes"] = "Import Sticky Notes",
+            ["rename"] = "Rename",
+            ["new_profile"] = "New profile",
+            ["profile_name"] = "Profile name",
+            ["profile_name_required"] = "Profile name required",
+
             // ── Notepad ─────────────────────────────────────────
             ["notepad"] = "Notepad",
             ["file_menu"] = "File",
@@ -583,6 +597,20 @@ public static class Lang
             ["webdav_url"] = "URL WebDAV",
             ["username"] = "Nom d'utilisateur",
             ["url_user_required"] = "URL et utilisateur requis",
+
+            // ── OneNote ─────────────────────────────────────────
+            ["onenote_not_configured"] = "OneNote non configuré",
+            ["onenote_auth_success"] = "OneNote connecté",
+            ["onenote_client_id_help"] = "Enregistrez une app dans Azure AD (Entra ID) avec redirect http://localhost. Copiez l'ID d'application (client) ici.",
+            ["onenote_client_id_required"] = "Client ID requis",
+            ["close_window"] = "Vous pouvez fermer cette fenêtre.",
+            ["timeout"] = "Délai dépassé",
+            ["auth_cancelled"] = "Authentification annulée",
+            ["import_sticky_notes"] = "Importer les Pense-bêtes",
+            ["rename"] = "Renommer",
+            ["new_profile"] = "Nouveau profil",
+            ["profile_name"] = "Nom du profil",
+            ["profile_name_required"] = "Nom du profil requis",
 
             // ── Notepad ─────────────────────────────────────────
             ["notepad"] = "Bloc-notes",

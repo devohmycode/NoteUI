@@ -8,6 +8,7 @@ public static class RuntimeSecrets
     private const string FirebaseApiKeyEnv = "NOTEUI_FIREBASE_API_KEY";
     private const string GoogleClientIdEnv = "NOTEUI_GOOGLE_CLIENT_ID";
     private const string GoogleClientSecretEnv = "NOTEUI_GOOGLE_CLIENT_SECRET";
+    private const string OneNoteClientIdEnv = "NOTEUI_ONENOTE_CLIENT_ID";
     private const string BundledConfigFileName = "firebase.public.json";
 
     public static bool TryGetFirebaseConfig(out string firebaseUrl, out string firebaseApiKey)
@@ -43,13 +44,24 @@ public static class RuntimeSecrets
         return !string.IsNullOrWhiteSpace(googleClientSecret);
     }
 
-    private static (string FirebaseUrl, string FirebaseApiKey, string GoogleClientId, string GoogleClientSecret) LoadBundledConfig()
+    public static bool TryGetOneNoteClientId(out string oneNoteClientId)
+    {
+        var bundled = LoadBundledConfig();
+        var (savedClientId, _) = AppSettings.LoadOneNoteSettings();
+        oneNoteClientId = FirstNonEmpty(
+            Environment.GetEnvironmentVariable(OneNoteClientIdEnv),
+            savedClientId,
+            bundled.OneNoteClientId);
+        return !string.IsNullOrWhiteSpace(oneNoteClientId);
+    }
+
+    private static (string FirebaseUrl, string FirebaseApiKey, string GoogleClientId, string GoogleClientSecret, string OneNoteClientId) LoadBundledConfig()
     {
         try
         {
             var configPath = Path.Combine(AppContext.BaseDirectory, BundledConfigFileName);
             if (!File.Exists(configPath))
-                return ("", "", "", "");
+                return ("", "", "", "", "");
 
             using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
             var root = doc.RootElement;
@@ -58,11 +70,12 @@ public static class RuntimeSecrets
                 GetString(root, "firebaseUrl"),
                 GetString(root, "firebaseApiKey"),
                 GetString(root, "googleClientId"),
-                GetString(root, "googleClientSecret"));
+                GetString(root, "googleClientSecret"),
+                GetString(root, "oneNoteClientId"));
         }
         catch
         {
-            return ("", "", "", "");
+            return ("", "", "", "", "");
         }
     }
 

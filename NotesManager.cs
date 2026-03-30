@@ -10,7 +10,9 @@ public class NotesManager
 
     public FirebaseSync? Firebase { get; private set; }
     public WebDavSync? WebDav { get; private set; }
+    public OneNoteSync? OneNote { get; private set; }
     public bool IsSyncing { get; private set; }
+    private CancellationTokenSource? _syncCts;
 
     public IReadOnlyList<NoteEntry> Notes => _notes;
     public string CurrentFolder => _saveDir;
@@ -37,6 +39,53 @@ public class NotesManager
         catch { }
     }
 
+    /// <summary>Clear in-memory notes (used before switching to a new cloud provider).</summary>
+    public void ClearNotes() => _notes.Clear();
+
+    /// <summary>Clear in-memory notes and reload from the local JSON file.</summary>
+    public void ReloadLocal()
+    {
+        _notes.Clear();
+        Load();
+    }
+
+    /// <summary>Active local profile name (empty = default notes.json).</summary>
+    public string ActiveProfile { get; private set; } = "";
+
+    public void SwitchProfile(string profileName)
+    {
+        ActiveProfile = profileName;
+        AppSettings.SaveActiveProfile(profileName);
+
+        if (string.IsNullOrEmpty(profileName))
+        {
+            _savePath = Path.Combine(_saveDir, "notes.json");
+        }
+        else
+        {
+            _savePath = AppSettings.GetProfilePath(profileName);
+            // Create the file immediately so it appears in the profiles list
+            if (!File.Exists(_savePath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_savePath)!);
+                File.WriteAllText(_savePath, "[]");
+            }
+        }
+
+        _notes.Clear();
+        Load();
+    }
+
+    public void InitProfile()
+    {
+        var profile = AppSettings.LoadActiveProfile();
+        if (!string.IsNullOrEmpty(profile))
+        {
+            ActiveProfile = profile;
+            _savePath = AppSettings.GetProfilePath(profile);
+        }
+    }
+
     public void ChangeFolder(string newFolder)
     {
         _saveDir = newFolder;
@@ -46,15 +95,34 @@ public class NotesManager
         Load();
     }
 
+    private bool IsCloudConnected =>
+        Firebase is { IsConnected: true } || WebDav is { IsConfigured: true } || OneNote is { IsConnected: true };
+
     public void Save(bool localOnly = false)
     {
-        try
+        if (!IsCloudConnected)
         {
-            Directory.CreateDirectory(_saveDir);
-            var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_savePath, json);
+            // Local mode: save to the active profile file
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_savePath)!);
+                var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_savePath, json);
+            }
+            catch { }
         }
-        catch { }
+        else if (localOnly)
+        {
+            // Cloud sync cache: save to default notes.json, never to a profile file
+            try
+            {
+                Directory.CreateDirectory(_saveDir);
+                var cachePath = Path.Combine(_saveDir, "notes.json");
+                var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(cachePath, json);
+            }
+            catch { }
+        }
 
         if (localOnly) return;
 
@@ -63,6 +131,8 @@ public class NotesManager
             _ = Firebase.PushNotesAsync(_notes);
         if (WebDav is { IsConfigured: true })
             _ = WebDav.PushNotesAsync(_notes);
+        if (OneNote is { IsConnected: true })
+            _ = OneNote.PushNotesAsync(_notes);
     }
 
     // ── Firebase ─────────────────────────────────────────────────
@@ -301,6 +371,101 @@ public class NotesManager
         WebDav?.Dispose();
         WebDav = null;
         AppSettings.SaveWebDavSettings("", "", "");
+    }
+
+    // ── OneNote ─────────────────────────────────────────────────
+
+    public async Task<(bool Success, string? Error)> SignInOneNote(string clientId)
+    {
+        OneNote?.Dispose();
+        OneNote = new OneNoteSync();
+        OneNote.Configure(clientId);
+
+        var result = await OneNote.SignInAsync();
+        if (result.Success)
+        {
+            AppSettings.SaveOneNoteSettings(clientId, OneNote.GetRefreshToken() ?? "");
+            return result;
+        }
+
+        OneNote.Dispose();
+        OneNote = null;
+        return result;
+    }
+
+    public async Task<bool> SyncFromOneNote()
+    {
+        if (OneNote is not { IsConnected: true }) return false;
+        _syncCts?.Cancel();
+        _syncCts = new CancellationTokenSource();
+        var ct = _syncCts.Token;
+        IsSyncing = true;
+        try
+        {
+            // Import local Sticky Notes (Pense-bêtes) first
+            ImportStickyNotes();
+
+            var remote = await OneNote.PullNotesAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            if (remote == null) return false;
+
+            var merged = OneNoteSync.MergeWithLocal(_notes, remote);
+            _notes.Clear();
+            _notes.AddRange(merged);
+            Save(localOnly: true);
+            return true;
+        }
+        catch (OperationCanceledException) { return false; }
+        catch { return false; }
+        finally { IsSyncing = false; }
+    }
+
+    public async Task InitOneNoteFromSettings()
+    {
+        var (_, refreshToken) = AppSettings.LoadOneNoteSettings();
+        if (string.IsNullOrEmpty(refreshToken)) return;
+        if (!RuntimeSecrets.TryGetOneNoteClientId(out var clientId)) return;
+
+        OneNote = new OneNoteSync();
+        OneNote.Configure(clientId);
+        if (await OneNote.SignInWithRefreshTokenAsync(refreshToken))
+        {
+            AppSettings.SaveOneNoteSettings(clientId, OneNote.GetRefreshToken() ?? "");
+            await SyncFromOneNote();
+        }
+        else
+        {
+            OneNote.Dispose();
+            OneNote = null;
+        }
+    }
+
+    public void DisconnectOneNote()
+    {
+        _syncCts?.Cancel();
+        OneNote?.Dispose();
+        OneNote = null;
+        AppSettings.SaveOneNoteSettings("", "");
+    }
+
+    // ── Sticky Notes (Pense-bêtes) ────────────────────────────
+
+    public int ImportStickyNotes()
+    {
+        var sticky = StickyNotesReader.ReadAll();
+        if (sticky.Count == 0) return 0;
+
+        var existingIds = new HashSet<string>(_notes.Select(n => n.Id), StringComparer.Ordinal);
+        var added = 0;
+        foreach (var note in sticky)
+        {
+            if (existingIds.Contains(note.Id)) continue;
+            _notes.Insert(0, note);
+            added++;
+        }
+
+        if (added > 0) Save(localOnly: true);
+        return added;
     }
 
     public NoteEntry CreateNote(string color = "Yellow")

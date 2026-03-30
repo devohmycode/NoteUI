@@ -178,6 +178,7 @@ public sealed partial class MainWindow : Window
             Environment.Exit(0);
         };
 
+        _notes.InitProfile();
         _notes.Load();
         _snippetManager.Load();
         _textExpansion = new TextExpansionService(_snippetManager);
@@ -233,6 +234,7 @@ public sealed partial class MainWindow : Window
     {
         await _notes.InitFirebaseFromSettings();
         await _notes.InitWebDavFromSettings();
+        await _notes.InitOneNoteFromSettings();
         UpdateSyncButtonVisibility();
         RefreshCurrentView();
         StartFirebaseListener();
@@ -329,25 +331,92 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void DisconnectAllCloudProviders()
+    {
+        if (_notes.Firebase is { IsConnected: true })
+        {
+            StopFirebaseListener();
+            _notes.DisconnectFirebase();
+        }
+        if (_notes.WebDav is { IsConfigured: true })
+            _notes.DisconnectWebDav();
+        if (_notes.OneNote is { IsConnected: true })
+            _notes.DisconnectOneNote();
+        UpdateSyncButtonVisibility();
+    }
+
+    private void SwitchToLocal()
+    {
+        // Save + close windows for the current context before switching
+        SaveOpenedSecondaryWindows();
+        CloseAllSecondaryWindows();
+        DisconnectAllCloudProviders();
+        // Reload notes from the active profile's file (or default notes.json)
+        _notes.SwitchProfile(_notes.ActiveProfile);
+        RefreshCurrentView();
+        // Restore windows for this profile
+        RestorePersistedWindows();
+    }
+
     private void UpdateSyncButtonVisibility()
     {
         SyncButton.Visibility = _notes.Firebase is { IsConnected: true }
+            || _notes.OneNote is { IsConnected: true }
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    private Microsoft.UI.Xaml.Media.Animation.Storyboard? _syncSpinStoryboard;
+
+    private void StartSyncAnimation()
+    {
+        if (_syncSpinStoryboard != null) return;
+        var icon = SyncIcon;
+        icon.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+        icon.RenderTransform = new Microsoft.UI.Xaml.Media.RotateTransform();
+
+        var anim = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = 0,
+            To = 360,
+            Duration = new Duration(TimeSpan.FromSeconds(1)),
+            RepeatBehavior = Microsoft.UI.Xaml.Media.Animation.RepeatBehavior.Forever,
+        };
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(anim, icon);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(anim, "(UIElement.RenderTransform).(RotateTransform.Angle)");
+
+        _syncSpinStoryboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        _syncSpinStoryboard.Children.Add(anim);
+        _syncSpinStoryboard.Begin();
+    }
+
+    private void StopSyncAnimation()
+    {
+        _syncSpinStoryboard?.Stop();
+        _syncSpinStoryboard = null;
     }
 
     private async void SyncButton_Click(object sender, RoutedEventArgs e)
     {
         SyncButton.IsEnabled = false;
+        StartSyncAnimation();
         try
         {
-            await _notes.SyncSettingsFromFirebase();
-            await _notes.SyncFromFirebase();
+            if (_notes.Firebase is { IsConnected: true })
+            {
+                await _notes.SyncSettingsFromFirebase();
+                await _notes.SyncFromFirebase();
+            }
+            if (_notes.OneNote is { IsConnected: true })
+            {
+                await _notes.SyncFromOneNote();
+            }
             RefreshOpenNoteWindows();
             RefreshCurrentView();
         }
         finally
         {
+            StopSyncAnimation();
             SyncButton.IsEnabled = true;
         }
     }
@@ -418,7 +487,20 @@ public sealed partial class MainWindow : Window
         AppSettings.SaveMainWindowCompact(_isCompact);
     }
 
-    private void SaveOpenedSecondaryWindows()
+    private string GetWindowStateKey()
+    {
+        if (_notes.Firebase is { IsConnected: true })
+            return "openWindows_firebase";
+        if (_notes.WebDav is { IsConfigured: true })
+            return "openWindows_webdav";
+        if (_notes.OneNote is { IsConnected: true })
+            return "openWindows_onenote";
+        if (!string.IsNullOrEmpty(_notes.ActiveProfile))
+            return $"openWindows_profile_{_notes.ActiveProfile}";
+        return "openWindows";
+    }
+
+    private List<PersistedWindowState> CollectWindowStates()
     {
         var windows = new List<PersistedWindowState>();
         foreach (var noteWindow in _openNoteWindows.ToList())
@@ -432,13 +514,37 @@ public sealed partial class MainWindow : Window
             var pos = _notepadWindow.AppWindow.Position;
             windows.Add(new PersistedWindowState("notepad", "", pos.X, pos.Y));
         }
+        return windows;
+    }
 
-        AppSettings.SaveOpenWindows(windows);
+    private void SaveOpenedSecondaryWindows()
+    {
+        var windows = CollectWindowStates();
+        AppSettings.SaveOpenWindows(windows, GetWindowStateKey());
+    }
+
+    private void CloseAllSecondaryWindows()
+    {
+        foreach (var w in _openNoteWindows.ToList())
+        {
+            try { w.Close(); } catch { }
+        }
+        _openNoteWindows.Clear();
+        if (_notepadWindow != null)
+        {
+            try { _notepadWindow.Close(); } catch { }
+            _notepadWindow = null;
+        }
     }
 
     private void RestorePersistedWindows()
     {
-        var windows = AppSettings.LoadOpenWindows();
+        RestorePersistedWindows(GetWindowStateKey());
+    }
+
+    private void RestorePersistedWindows(string key)
+    {
+        var windows = AppSettings.LoadOpenWindows(key);
         if (windows.Count == 0)
             return;
 
@@ -1955,12 +2061,15 @@ public sealed partial class MainWindow : Window
                 _notes.ChangeFolder(AppSettings.GetDefaultNotesFolder());
                 SwitchView(ViewMode.Notes);
             },
-            onConfigureFirebase: async () => await ShowFirebaseConfigDialog(),
+            onConfigureFirebase: async () =>
+            {
+                DisconnectAllCloudProviders();
+                await ShowFirebaseConfigDialog();
+            },
             onDisconnectFirebase: () =>
             {
-                StopFirebaseListener();
-                _notes.DisconnectFirebase();
-                UpdateSyncButtonVisibility();
+                DisconnectAllCloudProviders();
+                SwitchToLocal();
             },
             onSyncFirebase: async () =>
             {
@@ -1968,14 +2077,66 @@ public sealed partial class MainWindow : Window
                 RefreshOpenNoteWindows();
                 RefreshCurrentView();
             },
-            onConfigureWebDav: async () => await ShowWebDavConfigDialog(),
+            onConfigureWebDav: async () =>
+            {
+                DisconnectAllCloudProviders();
+                await ShowWebDavConfigDialog();
+            },
             onDisconnectWebDav: () =>
             {
-                _notes.DisconnectWebDav();
+                DisconnectAllCloudProviders();
+                SwitchToLocal();
             },
             onSyncWebDav: async () =>
             {
                 await _notes.SyncFromWebDav();
+                RefreshOpenNoteWindows();
+                RefreshCurrentView();
+            },
+            isOneNoteConnected: _notes.OneNote is { IsConnected: true },
+            oneNoteUser: _notes.OneNote?.UserName,
+            activeProfile: _notes.ActiveProfile,
+            profiles: AppSettings.LoadProfiles(),
+            getActiveProfile: () => _notes.ActiveProfile,
+            getProfiles: () => AppSettings.LoadProfiles(),
+            onSwitchProfile: profile =>
+            {
+                // Save + close windows for current context
+                SaveOpenedSecondaryWindows();
+                CloseAllSecondaryWindows();
+                DisconnectAllCloudProviders();
+                _notes.SwitchProfile(profile);
+                RefreshCurrentView();
+                // Restore windows for the new profile
+                RestorePersistedWindows();
+            },
+            onCreateProfile: async () => await ShowCreateProfileDialog(),
+            onRenameProfile: async (name, rebuild) => { await ShowRenameProfileDialog(name); rebuild(); },
+            onDeleteProfile: name =>
+            {
+                var wasActive = string.Equals(_notes.ActiveProfile, name, StringComparison.OrdinalIgnoreCase);
+                AppSettings.DeleteProfile(name);
+                if (wasActive)
+                {
+                    _notes.SwitchProfile("");
+                    RefreshOpenNoteWindows();
+                    RefreshCurrentView();
+                }
+            },
+            onConfigureOneNote: async () =>
+            {
+                DisconnectAllCloudProviders();
+                await ShowOneNoteConfigDialog();
+            },
+            onDisconnectOneNote: () =>
+            {
+                DisconnectAllCloudProviders();
+                SwitchToLocal();
+            },
+            onSyncOneNote: async () =>
+            {
+                await _notes.SyncFromOneNote();
+                RefreshOpenNoteWindows();
                 RefreshCurrentView();
             },
             onShowVoiceModels: f => ShowVoiceModelsInSettings(f),
@@ -2373,13 +2534,218 @@ public sealed partial class MainWindow : Window
             var (success, error) = await _notes.ConnectWebDav(url, user, pass);
             if (success)
             {
+                _notes.ClearNotes();
+                RefreshCurrentView();
                 await _notes.SyncFromWebDav();
                 RefreshCurrentView();
+                RestorePersistedWindows();
                 break;
             }
 
             errorText.Text = error ?? Lang.T("connection_error");
             errorText.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async Task ShowRenameProfileDialog(string oldName)
+    {
+        var nameBox = new TextBox { Text = oldName, FontSize = 12 };
+
+        var dialog = new ContentDialog
+        {
+            Title = Lang.T("rename"),
+            Content = nameBox,
+            PrimaryButtonText = Lang.T("ok"),
+            CloseButtonText = Lang.T("cancel"),
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary) return;
+
+        var newName = nameBox.Text.Trim();
+        if (string.IsNullOrEmpty(newName) || string.Equals(newName, oldName, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        foreach (var c in Path.GetInvalidFileNameChars())
+            newName = newName.Replace(c, '_');
+
+        // Rename the file
+        var oldPath = AppSettings.GetProfilePath(oldName);
+        var newPath = AppSettings.GetProfilePath(newName);
+        try
+        {
+            if (File.Exists(oldPath) && !File.Exists(newPath))
+                File.Move(oldPath, newPath);
+            else if (!File.Exists(newPath))
+                File.WriteAllText(newPath, "[]");
+        }
+        catch { return; }
+
+        // Rename the window state key
+        var oldWindows = AppSettings.LoadOpenWindows($"openWindows_profile_{oldName}");
+        if (oldWindows.Count > 0)
+            AppSettings.SaveOpenWindows(oldWindows, $"openWindows_profile_{newName}");
+
+        // Delete old profile file
+        try { if (File.Exists(oldPath)) File.Delete(oldPath); } catch { }
+
+        // If this was the active profile, switch to the new name
+        if (string.Equals(_notes.ActiveProfile, oldName, StringComparison.OrdinalIgnoreCase))
+        {
+            _notes.SwitchProfile(newName);
+            RefreshCurrentView();
+        }
+    }
+
+    private async Task ShowCreateProfileDialog()
+    {
+        var nameBox = new TextBox
+        {
+            PlaceholderText = Lang.T("profile_name"),
+            FontSize = 12,
+        };
+        var errorText = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+            Visibility = Visibility.Collapsed,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(nameBox);
+        panel.Children.Add(errorText);
+
+        var dialog = new ContentDialog
+        {
+            Title = Lang.T("new_profile"),
+            Content = panel,
+            PrimaryButtonText = Lang.T("ok"),
+            CloseButtonText = Lang.T("cancel"),
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        while (true)
+        {
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary) return;
+
+            var name = nameBox.Text.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                errorText.Text = Lang.T("profile_name_required");
+                errorText.Visibility = Visibility.Visible;
+                continue;
+            }
+
+            // Sanitize: remove invalid filename characters
+            foreach (var c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+
+            DisconnectAllCloudProviders();
+            _notes.SwitchProfile(name);
+            RefreshOpenNoteWindows();
+            RefreshCurrentView();
+            return;
+        }
+    }
+
+    private async Task ShowOneNoteConfigDialog()
+    {
+        if (!RuntimeSecrets.TryGetOneNoteClientId(out var clientId))
+        {
+            // Fallback: ask for Client ID manually
+            var clientIdBox = new TextBox
+            {
+                PlaceholderText = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            var helpText = new TextBlock
+            {
+                Text = Lang.T("onenote_client_id_help"),
+                FontSize = 11,
+                Opacity = 0.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            var errorText = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 99, 99)),
+                Visibility = Visibility.Collapsed,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+
+            var panel = new StackPanel { Spacing = 4 };
+            panel.Children.Add(new TextBlock { Text = "Client ID (Azure AD)", FontSize = 12 });
+            panel.Children.Add(clientIdBox);
+            panel.Children.Add(helpText);
+            panel.Children.Add(errorText);
+
+            var dialog = new ContentDialog
+            {
+                Title = "OneNote",
+                Content = panel,
+                PrimaryButtonText = Lang.T("connect"),
+                CloseButtonText = Lang.T("cancel"),
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            while (true)
+            {
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary) return;
+
+                clientId = clientIdBox.Text.Trim();
+                if (string.IsNullOrEmpty(clientId))
+                {
+                    errorText.Text = Lang.T("onenote_client_id_required");
+                    errorText.Visibility = Visibility.Visible;
+                    continue;
+                }
+                break;
+            }
+        }
+
+        // Sign in via browser (one-click when Client ID is embedded)
+        var (success, error) = await _notes.SignInOneNote(clientId);
+        if (success)
+        {
+            // Clear notes immediately so user sees empty list + spinner
+            _notes.ClearNotes();
+            RefreshCurrentView();
+            UpdateSyncButtonVisibility();
+            StartSyncAnimation();
+            var syncOk = false;
+            try
+            {
+                syncOk = await _notes.SyncFromOneNote();
+            }
+            finally
+            {
+                StopSyncAnimation();
+            }
+            // Only refresh if sync succeeded (not cancelled by disconnect)
+            if (syncOk && _notes.OneNote is { IsConnected: true })
+            {
+                RefreshCurrentView();
+                RestorePersistedWindows();
+            }
+        }
+        else
+        {
+            var errDialog = new ContentDialog
+            {
+                Title = "OneNote",
+                Content = error ?? Lang.T("connection_error"),
+                CloseButtonText = Lang.T("ok"),
+                XamlRoot = this.Content.XamlRoot
+            };
+            await errDialog.ShowAsync();
         }
     }
 
@@ -2469,11 +2835,18 @@ public sealed partial class MainWindow : Window
             var (success, error) = await _notes.SignInFirebaseWithGoogle(firebaseUrl, apiKey);
             if (success)
             {
-                await _notes.SyncFromFirebase();
-                RefreshOpenNoteWindows();
-                UpdateSyncButtonVisibility();
+                _notes.ClearNotes();
                 RefreshCurrentView();
-                StartFirebaseListener();
+                UpdateSyncButtonVisibility();
+                StartSyncAnimation();
+                var ok = await _notes.SyncFromFirebase();
+                StopSyncAnimation();
+                if (ok && _notes.Firebase is { IsConnected: true })
+                {
+                    RefreshCurrentView();
+                    RestorePersistedWindows();
+                    StartFirebaseListener();
+                }
                 googleSignInDone = true;
             }
             else
@@ -2506,11 +2879,18 @@ public sealed partial class MainWindow : Window
 
             if (success)
             {
-                await _notes.SyncFromFirebase();
-                RefreshOpenNoteWindows();
-                UpdateSyncButtonVisibility();
+                _notes.ClearNotes();
                 RefreshCurrentView();
-                StartFirebaseListener();
+                UpdateSyncButtonVisibility();
+                StartSyncAnimation();
+                var ok = await _notes.SyncFromFirebase();
+                StopSyncAnimation();
+                if (ok && _notes.Firebase is { IsConnected: true })
+                {
+                    RefreshCurrentView();
+                    RestorePersistedWindows();
+                    StartFirebaseListener();
+                }
                 break;
             }
 
@@ -2758,6 +3138,8 @@ public sealed partial class MainWindow : Window
                 ShowClipboardHistory(SearchBox.Text);
                 break;
         }
+
+        NoteCountText.Text = _notes.Notes.Count > 0 ? _notes.Notes.Count.ToString() : "";
     }
 
     private void ShowFavorites(string? search = null)
