@@ -232,6 +232,11 @@ public sealed partial class MainWindow : Window
 
     private async Task InitCloudSync()
     {
+        // Load cloud cache first so UI shows notes immediately
+        _notes.LoadCloudCache();
+        if (_notes.Notes.Count > 0)
+            RefreshCurrentView();
+
         await _notes.InitFirebaseFromSettings();
         await _notes.InitWebDavFromSettings();
         await _notes.InitOneNoteFromSettings();
@@ -342,6 +347,7 @@ public sealed partial class MainWindow : Window
             _notes.DisconnectWebDav();
         if (_notes.OneNote is { IsConnected: true })
             _notes.DisconnectOneNote();
+        _notes.ClearNotes();
         UpdateSyncButtonVisibility();
     }
 
@@ -457,8 +463,14 @@ public sealed partial class MainWindow : Window
         _notes.Save();
     }
 
+    private CancellationTokenSource? _refreshCts;
+
     private void RefreshNotesList(string? search = null)
     {
+        _refreshCts?.Cancel();
+        _refreshCts = new CancellationTokenSource();
+        var ct = _refreshCts.Token;
+
         ResetExpandedState();
         NotesList.Children.Clear();
         var notes = _notes.GetSorted(AppSettings.LoadSortPreference()).Where(n => !n.IsArchived).ToList();
@@ -471,14 +483,25 @@ public sealed partial class MainWindow : Window
             ).ToList();
         }
 
+        const int batchSize = 30;
         var index = 0;
-        foreach (var note in notes)
+
+        void LoadBatch()
         {
-            var card = CreateNoteCard(note);
-            NotesList.Children.Add(card);
-            AnimationHelper.FadeSlideIn(card, delayMs: index * 30, durationMs: 250);
-            index++;
+            if (ct.IsCancellationRequested) return;
+            var end = Math.Min(index + batchSize, notes.Count);
+            for (; index < end; index++)
+            {
+                var card = CreateNoteCard(notes[index]);
+                NotesList.Children.Add(card);
+                if (index < batchSize)
+                    AnimationHelper.FadeSlideIn(card, delayMs: index * 20, durationMs: 200);
+            }
+            if (index < notes.Count)
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, LoadBatch);
         }
+
+        LoadBatch();
     }
 
     private void SaveMainWindowPosition()
@@ -2139,6 +2162,11 @@ public sealed partial class MainWindow : Window
                 RefreshOpenNoteWindows();
                 RefreshCurrentView();
             },
+            onImportStickyNotes: StickyNotesReader.IsAvailable ? () =>
+            {
+                var count = _notes.ImportStickyNotes();
+                if (count > 0) RefreshCurrentView();
+            } : null,
             onShowVoiceModels: f => ShowVoiceModelsInSettings(f),
             onShowShortcuts: f => ShowShortcutsInSettings(f),
             currentLanguage: Lang.Current,
@@ -2534,11 +2562,8 @@ public sealed partial class MainWindow : Window
             var (success, error) = await _notes.ConnectWebDav(url, user, pass);
             if (success)
             {
-                _notes.ClearNotes();
-                RefreshCurrentView();
                 await _notes.SyncFromWebDav();
                 RefreshCurrentView();
-                RestorePersistedWindows();
                 break;
             }
 
@@ -2715,25 +2740,16 @@ public sealed partial class MainWindow : Window
         var (success, error) = await _notes.SignInOneNote(clientId);
         if (success)
         {
-            // Clear notes immediately so user sees empty list + spinner
-            _notes.ClearNotes();
-            RefreshCurrentView();
             UpdateSyncButtonVisibility();
             StartSyncAnimation();
-            var syncOk = false;
             try
             {
-                syncOk = await _notes.SyncFromOneNote();
+                await _notes.SyncFromOneNote();
             }
             finally
             {
                 StopSyncAnimation();
-            }
-            // Only refresh if sync succeeded (not cancelled by disconnect)
-            if (syncOk && _notes.OneNote is { IsConnected: true })
-            {
                 RefreshCurrentView();
-                RestorePersistedWindows();
             }
         }
         else
@@ -2835,18 +2851,12 @@ public sealed partial class MainWindow : Window
             var (success, error) = await _notes.SignInFirebaseWithGoogle(firebaseUrl, apiKey);
             if (success)
             {
-                _notes.ClearNotes();
-                RefreshCurrentView();
                 UpdateSyncButtonVisibility();
                 StartSyncAnimation();
-                var ok = await _notes.SyncFromFirebase();
+                await _notes.SyncFromFirebase();
                 StopSyncAnimation();
-                if (ok && _notes.Firebase is { IsConnected: true })
-                {
-                    RefreshCurrentView();
-                    RestorePersistedWindows();
-                    StartFirebaseListener();
-                }
+                RefreshCurrentView();
+                StartFirebaseListener();
                 googleSignInDone = true;
             }
             else
@@ -2879,18 +2889,12 @@ public sealed partial class MainWindow : Window
 
             if (success)
             {
-                _notes.ClearNotes();
-                RefreshCurrentView();
                 UpdateSyncButtonVisibility();
                 StartSyncAnimation();
-                var ok = await _notes.SyncFromFirebase();
+                await _notes.SyncFromFirebase();
                 StopSyncAnimation();
-                if (ok && _notes.Firebase is { IsConnected: true })
-                {
-                    RefreshCurrentView();
-                    RestorePersistedWindows();
-                    StartFirebaseListener();
-                }
+                RefreshCurrentView();
+                StartFirebaseListener();
                 break;
             }
 

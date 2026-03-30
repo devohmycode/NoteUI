@@ -198,6 +198,7 @@ public static class ActionPanel
         Action<string, Action>? onRenameProfile = null, Action<string>? onDeleteProfile = null,
         Func<string>? getActiveProfile = null, Func<List<string>>? getProfiles = null,
         Action? onConfigureOneNote = null, Action? onDisconnectOneNote = null, Action? onSyncOneNote = null,
+        Action? onImportStickyNotes = null,
         Action<Flyout>? onShowVoiceModels = null,
         Action<Flyout>? onShowShortcuts = null,
         string? currentLanguage = null, bool slashEnabled = true,
@@ -317,9 +318,10 @@ public static class ActionPanel
             onResetFolder, onChangeFolder,
             onSwitchProfile ?? (_ => { }), onCreateProfile ?? (() => { }),
             onRenameProfile ?? ((_, _) => { }), onDeleteProfile ?? (_ => { }),
-            onConfigureFirebase, onDisconnectFirebase, onSyncFirebase,
             onConfigureWebDav, onDisconnectWebDav, onSyncWebDav,
+            onConfigureFirebase, onDisconnectFirebase, onSyncFirebase,
             onConfigureOneNote ?? (() => { }), onDisconnectOneNote ?? (() => { }), onSyncOneNote ?? (() => { }),
+            onImportStickyNotes,
             getActiveProfile ?? (() => activeProfile ?? ""),
             getProfiles ?? (() => profiles ?? []),
             () => flyout.Hide());
@@ -499,9 +501,10 @@ public static class ActionPanel
         Action onResetFolder, Action onChangeFolder,
         Action<string> onSwitchProfile, Action onCreateProfile,
         Action<string, Action> onRenameProfile, Action<string> onDeleteProfile,
-        Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
         Action onConfigureWebDav, Action onDisconnectWebDav, Action onSyncWebDav,
+        Action onConfigureFirebase, Action onDisconnectFirebase, Action onSyncFirebase,
         Action onConfigureOneNote, Action onDisconnectOneNote, Action onSyncOneNote,
+        Action? onImportStickyNotes,
         Func<string> getActiveProfile, Func<List<string>> getProfiles,
         Action onDone)
     {
@@ -594,18 +597,6 @@ public static class ActionPanel
 
             panel.Children.Add(CreateSeparator());
 
-            // ── Firebase ──
-            if (isFirebaseConnected)
-            {
-                var fbLabel = !string.IsNullOrEmpty(firebaseEmail) ? $"Firebase — {firebaseEmail}" : "Firebase";
-                panel.Children.Add(CreateCheckItem(fbLabel, true, () => { onSyncFirebase(); onDone(); }));
-                panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectFirebase(); onDone(); }));
-            }
-            else
-            {
-                panel.Children.Add(CreateCheckItem("Firebase", false, () => { onConfigureFirebase(); onDone(); }));
-            }
-
             // ── WebDAV ──
             if (isWebDavConnected)
             {
@@ -618,6 +609,18 @@ public static class ActionPanel
                 panel.Children.Add(CreateCheckItem("WebDAV", false, () => { onConfigureWebDav(); onDone(); }));
             }
 
+            // ── Firebase ──
+            if (isFirebaseConnected)
+            {
+                var fbLabel = !string.IsNullOrEmpty(firebaseEmail) ? $"Firebase — {firebaseEmail}" : "Firebase";
+                panel.Children.Add(CreateCheckItem(fbLabel, true, () => { onSyncFirebase(); onDone(); }));
+                panel.Children.Add(CreateActionItem(Lang.T("disconnect"), () => { onDisconnectFirebase(); onDone(); }));
+            }
+            else
+            {
+                panel.Children.Add(CreateCheckItem("Firebase", false, () => { onConfigureFirebase(); onDone(); }));
+            }
+
             // ── OneNote ──
             if (isOneNoteConnected)
             {
@@ -628,6 +631,12 @@ public static class ActionPanel
             else
             {
                 panel.Children.Add(CreateCheckItem("OneNote", false, () => { onConfigureOneNote(); onDone(); }));
+            }
+
+            // ── Import Sticky Notes (under OneNote) ──
+            if (onImportStickyNotes != null)
+            {
+                panel.Children.Add(CreateActionItem(Lang.T("import_sticky_notes"), () => { onImportStickyNotes(); }));
             }
         }
 
