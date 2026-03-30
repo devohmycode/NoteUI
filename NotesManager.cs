@@ -98,6 +98,35 @@ public class NotesManager
     private bool IsCloudConnected =>
         Firebase is { IsConnected: true } || WebDav is { IsConfigured: true } || OneNote is { IsConnected: true };
 
+    private string CloudCachePath => Path.Combine(_saveDir, ".cloud-cache.json");
+
+    public void LoadCloudCache()
+    {
+        try
+        {
+            if (!File.Exists(CloudCachePath)) return;
+            var json = File.ReadAllText(CloudCachePath);
+            var entries = JsonSerializer.Deserialize<List<NoteEntry>>(json);
+            if (entries is { Count: > 0 })
+            {
+                _notes.Clear();
+                _notes.AddRange(entries);
+            }
+        }
+        catch { }
+    }
+
+    public void SaveCloudCache()
+    {
+        try
+        {
+            Directory.CreateDirectory(_saveDir);
+            var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(CloudCachePath, json);
+        }
+        catch { }
+    }
+
     public void Save(bool localOnly = false)
     {
         if (!IsCloudConnected)
@@ -108,18 +137,6 @@ public class NotesManager
                 Directory.CreateDirectory(Path.GetDirectoryName(_savePath)!);
                 var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_savePath, json);
-            }
-            catch { }
-        }
-        else if (localOnly)
-        {
-            // Cloud sync cache: save to default notes.json, never to a profile file
-            try
-            {
-                Directory.CreateDirectory(_saveDir);
-                var cachePath = Path.Combine(_saveDir, "notes.json");
-                var json = JsonSerializer.Serialize(_notes, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(cachePath, json);
             }
             catch { }
         }
@@ -209,7 +226,7 @@ public class NotesManager
 
             _notes.Clear();
             _notes.AddRange(merged);
-            Save(localOnly: true);
+            SaveCloudCache();
             return true;
         }
         catch { return false; }
@@ -226,7 +243,6 @@ public class NotesManager
         Firebase.Configure(url, apiKey);
         if (await Firebase.SignInWithRefreshTokenAsync(refreshToken))
         {
-            // Update stored refresh token
             AppSettings.SaveFirebaseSettings(url, apiKey, Firebase.GetRefreshToken() ?? "");
             await SyncSettingsFromFirebase();
             await SyncFromFirebase();
@@ -342,7 +358,7 @@ public class NotesManager
 
             _notes.Clear();
             _notes.AddRange(merged.Values);
-            Save(localOnly: true);
+            SaveCloudCache();
             return true;
         }
         catch { return false; }
@@ -393,30 +409,26 @@ public class NotesManager
         return result;
     }
 
-    public async Task<bool> SyncFromOneNote()
+    public async Task SyncFromOneNote()
     {
-        if (OneNote is not { IsConnected: true }) return false;
+        if (OneNote is not { IsConnected: true }) return;
+        if (IsSyncing) return;
         _syncCts?.Cancel();
         _syncCts = new CancellationTokenSource();
         var ct = _syncCts.Token;
         IsSyncing = true;
         try
         {
-            // Import local Sticky Notes (Pense-bêtes) first
-            ImportStickyNotes();
-
             var remote = await OneNote.PullNotesAsync(ct);
-            ct.ThrowIfCancellationRequested();
-            if (remote == null) return false;
-
-            var merged = OneNoteSync.MergeWithLocal(_notes, remote);
-            _notes.Clear();
-            _notes.AddRange(merged);
-            Save(localOnly: true);
-            return true;
+            if (remote is { Count: > 0 })
+            {
+                var merged = OneNoteSync.MergeWithLocal(_notes, remote);
+                _notes.Clear();
+                _notes.AddRange(merged);
+                SaveCloudCache();
+            }
         }
-        catch (OperationCanceledException) { return false; }
-        catch { return false; }
+        catch { }
         finally { IsSyncing = false; }
     }
 

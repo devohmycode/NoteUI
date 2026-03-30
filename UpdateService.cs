@@ -7,7 +7,7 @@ namespace NoteUI;
 
 public static class UpdateService
 {
-    public const string CurrentVersion = "0.5.0";
+    public const string CurrentVersion = "0.5.1";
     private const string GitHubOwner = "devohmycode";
     private const string GitHubRepo = "NoteUI";
 

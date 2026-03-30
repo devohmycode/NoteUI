@@ -291,36 +291,19 @@ public class OneNoteSync : IDisposable
     public async Task<List<NoteEntry>?> PullNotesAsync(CancellationToken ct = default)
     {
         if (!IsConnected) return null;
-        if (!await EnsureNotebookAndSection(ct)) return null;
+
         try
         {
-            var notes = new List<NoteEntry>();
-
-            // 1. Pull from our NoteUI section only (fast — limited scope)
-            if (_sectionId != null)
-            {
-                var pages = await ListPagesInSection(_sectionId, ct);
-                foreach (var page in pages)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var pageId = page.GetProperty("id").GetString()!;
-                    var note = await PullPageContent(page, pageId, ct);
-                    if (note != null)
-                        notes.Add(note);
-                }
-            }
-
-            ct.ThrowIfCancellationRequested();
-
-            // 2. Pull Sticky Notes from Outlook (they sync via Exchange, not OneNote)
-            var stickyNotes = await PullOutlookStickyNotesAsync(ct);
-            if (stickyNotes != null)
-                notes.AddRange(stickyNotes);
-
-            return notes;
+            if (!await EnsureNotebookAndSection(ct)) return [];
         }
-        catch (OperationCanceledException) { throw; }
-        catch { return null; }
+        catch { return []; }
+
+        try
+        {
+            if (ct.IsCancellationRequested) return null;
+            return await PullOutlookStickyNotesAsync(ct);
+        }
+        catch { return ct.IsCancellationRequested ? null : []; }
     }
 
     private async Task<List<JsonElement>> ListPagesInSection(string sectionId, CancellationToken ct = default)
@@ -398,16 +381,16 @@ public class OneNoteSync : IDisposable
 
     // ── Pull Sticky Notes from Outlook ────────────────────────
 
-    private async Task<List<NoteEntry>?> PullOutlookStickyNotesAsync(CancellationToken ct = default)
+    private async Task<List<NoteEntry>> PullOutlookStickyNotesAsync(CancellationToken ct = default)
     {
+        var notes = new List<NoteEntry>();
         try
         {
-            var notes = new List<NoteEntry>();
-            var url = $"{GraphBase}/me/mailFolders/notes/messages?$select=id,subject,body,createdDateTime,lastModifiedDateTime&$top=100";
+            var url = $"{GraphBase}/me/mailFolders/notes/messages?$select=id,subject,body,categories,createdDateTime,lastModifiedDateTime&$top=100";
 
             while (!string.IsNullOrEmpty(url))
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested) return notes;
                 var resp = await _http.GetAsync(url, ct);
                 if (!resp.IsSuccessStatusCode) break;
                 var json = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
@@ -433,6 +416,8 @@ public class OneNoteSync : IDisposable
                     var updatedAt = msg.TryGetProperty("lastModifiedDateTime", out var ua)
                         ? (DateTime.TryParse(ua.GetString(), out var udt) ? udt : DateTime.Now) : DateTime.Now;
 
+                    var color = "Yellow";
+
                     notes.Add(new NoteEntry
                     {
                         Id = $"outlook-sticky-{id}",
@@ -441,20 +426,50 @@ public class OneNoteSync : IDisposable
                         CreatedAt = createdAt,
                         UpdatedAt = updatedAt,
                         NoteType = "note",
-                        Color = "Yellow",
+                        Color = color,
                     });
                 }
 
                 url = json.TryGetProperty("@odata.nextLink", out var next) ? next.GetString() : null;
             }
 
+            // Apply colors from local Sticky Notes database (the only reliable source)
+            ApplyColorsFromLocalStickyNotes(notes);
+
             return notes;
         }
-        catch (OperationCanceledException) { throw; }
         catch
         {
-            return null;
+            return notes;
         }
+    }
+
+    private static void ApplyColorsFromLocalStickyNotes(List<NoteEntry> outlookNotes)
+    {
+        if (!StickyNotesReader.IsAvailable || outlookNotes.Count == 0) return;
+        try
+        {
+            var localNotes = StickyNotesReader.ReadAll();
+            if (localNotes.Count == 0) return;
+
+            // Build a map of normalized content → color from local notes
+            var colorMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var local in localNotes)
+            {
+                var key = NormalizeForDedup(local.Content);
+                if (!string.IsNullOrWhiteSpace(key) && !colorMap.ContainsKey(key))
+                    colorMap[key] = local.Color;
+            }
+
+            // Apply colors to Outlook notes by matching content
+            foreach (var note in outlookNotes)
+            {
+                var key = NormalizeForDedup(note.Content);
+                if (!string.IsNullOrWhiteSpace(key) && colorMap.TryGetValue(key, out var localColor))
+                    note.Color = localColor;
+            }
+        }
+        catch { }
     }
 
     private static string StripHtmlToPlain(string html)
@@ -767,7 +782,32 @@ public class OneNoteSync : IDisposable
                 merged[n.Id] = n;
         }
 
-        return merged.Values.ToList();
+        // Deduplicate notes with same content from different sources
+        // (e.g. local Sticky Notes vs Outlook Sticky Notes)
+        return DeduplicateByContent(merged.Values.ToList());
+    }
+
+    private static List<NoteEntry> DeduplicateByContent(List<NoteEntry> notes)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<NoteEntry>();
+
+        foreach (var note in notes.OrderBy(n => n.Id.StartsWith("sticky-") || n.Id.StartsWith("outlook-sticky-") ? 1 : 0))
+        {
+            var key = NormalizeForDedup(note.Content);
+            if (string.IsNullOrWhiteSpace(key) || seen.Add(key))
+                result.Add(note);
+        }
+
+        return result;
+    }
+
+    private static string NormalizeForDedup(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        // Trim, collapse whitespace, take first 200 chars for comparison
+        var normalized = Regex.Replace(text.Trim(), @"\s+", " ");
+        return normalized.Length > 200 ? normalized[..200] : normalized;
     }
 
     // ── Helpers ──────────────────────────────────────────────────
